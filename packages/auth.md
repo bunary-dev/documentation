@@ -1,7 +1,3 @@
----
-title: @bunary/auth
-description: Authentication manager with guard abstraction for securing APIs
----
 
 # @bunary/auth
 

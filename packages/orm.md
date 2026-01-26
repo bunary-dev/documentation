@@ -1,7 +1,3 @@
----
-title: @bunary/orm
-description: ORM with database abstraction layer for Bunary
----
 
 # @bunary/orm
 

@@ -1,7 +1,3 @@
----
-title: Guards
-description: Understanding and creating authentication guards
----
 
 # Guards
 

@@ -1,7 +1,3 @@
----
-title: @bunary/core
-description: The foundation package providing configuration, environment, and app helpers
----
 
 # @bunary/core
 

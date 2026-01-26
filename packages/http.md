@@ -1,7 +1,3 @@
----
-title: @bunary/http
-description: HTTP layer with routing, middleware, and request/response handling
----
 
 # @bunary/http
 

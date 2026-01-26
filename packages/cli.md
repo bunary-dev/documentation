@@ -1,7 +1,3 @@
----
-title: @bunary/cli
-description: Command-line tools for project scaffolding
----
 
 # @bunary/cli
 

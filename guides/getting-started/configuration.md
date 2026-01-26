@@ -1,7 +1,3 @@
----
-title: Configuration
-description: Understanding and customizing your Bunary application configuration
----
 
 # Configuration
 

@@ -1,7 +1,3 @@
----
-title: Responses
-description: Sending HTTP responses from your handlers
----
 
 # Responses
 

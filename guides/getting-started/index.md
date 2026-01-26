@@ -1,7 +1,3 @@
----
-title: Installation
-description: Get Bunary up and running in your project
----
 
 # Installation
 

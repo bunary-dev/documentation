@@ -1,7 +1,3 @@
----
-title: Directory Structure
-description: Understanding the default Bunary project layout
----
 
 # Directory Structure
 

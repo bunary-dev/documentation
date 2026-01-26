@@ -1,7 +1,3 @@
----
-title: Philosophy
-description: The guiding principles behind Bunary's design decisions
----
 
 # Philosophy
 

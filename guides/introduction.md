@@ -1,7 +1,3 @@
----
-title: Introduction
-description: Getting started with Bunary
----
 
 # Introduction
 
