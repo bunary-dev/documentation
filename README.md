@@ -9,15 +9,27 @@ documentation/
 ├── guides/          # Getting started and core concepts
 │   ├── introduction.md
 │   ├── philosophy.md
-│   ├── installation.md
-│   ├── configuration.md
-│   ├── structure.md
-│   ├── routing.md
-│   ├── middleware.md
-│   ├── requests.md
-│   ├── responses.md
-│   ├── authentication.md
-│   └── guards.md
+│   ├── getting-started/
+│   │   ├── index.md          # Installation
+│   │   ├── configuration.md
+│   │   └── structure.md
+│   ├── basics/
+│   │   ├── index.md          # Middleware
+│   │   ├── requests.md
+│   │   └── responses.md
+│   ├── routing/
+│   │   ├── index.md
+│   │   ├── route-parameters.md
+│   │   ├── route-groups.md
+│   │   └── named-routes.md
+│   ├── orm/
+│   │   ├── index.md
+│   │   ├── models.md
+│   │   ├── query-builder.md
+│   │   └── database-config.md
+│   └── security/
+│       ├── index.md          # Authentication
+│       └── guards.md
 └── packages/        # Package-specific documentation
     ├── core.md
     ├── http.md
