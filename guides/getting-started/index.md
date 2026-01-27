@@ -51,15 +51,19 @@ bun add @bunary/core @bunary/http
 Create a `bunary.config.ts` in your project root:
 
 ```typescript
-import { defineConfig } from "@bunary/core";
+import { createConfig, defineConfig } from "@bunary/core";
 
-export default defineConfig({
-  app: {
-    name: "My API",
-    env: "development",
-    debug: true,
-  },
-});
+export const configStore = createConfig(
+  defineConfig({
+    app: {
+      name: "My API",
+      env: "development",
+      debug: true,
+    },
+  }),
+);
+
+export default configStore.get();
 ```
 
 ### 3. Create Entry Point

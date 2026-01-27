@@ -8,15 +8,19 @@ Understanding and customizing your Bunary application configuration.
 Bunary uses a `bunary.config.ts` file at your project root for configuration. This file exports a configuration object created with the `defineConfig` helper:
 
 ```typescript
-import { defineConfig } from "@bunary/core";
+import { createConfig, defineConfig } from "@bunary/core";
 
-export default defineConfig({
-  app: {
-    name: "My API",
-    env: "development",
-    debug: true,
-  },
-});
+export const configStore = createConfig(
+  defineConfig({
+    app: {
+      name: "My API",
+      env: "development",
+      debug: true,
+    },
+  }),
+);
+
+export default configStore.get();
 ```
 
 ### Using Environment Constants
@@ -24,15 +28,19 @@ export default defineConfig({
 Instead of string literals, you can use the `Environment` constant for better autocomplete and type safety:
 
 ```typescript
-import { defineConfig, Environment } from "@bunary/core";
+import { createConfig, defineConfig, Environment } from "@bunary/core";
 
-export default defineConfig({
-  app: {
-    name: "My API",
-    env: Environment.DEVELOPMENT,
-    debug: true,
-  },
-});
+export const configStore = createConfig(
+  defineConfig({
+    app: {
+      name: "My API",
+      env: Environment.DEVELOPMENT,
+      debug: true,
+    },
+  }),
+);
+
+export default configStore.get();
 
 // Available values:
 // Environment.DEVELOPMENT → "development"
