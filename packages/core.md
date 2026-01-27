@@ -30,15 +30,17 @@ if (isDev()) {
 ### Configuration
 
 ```typescript
-import { defineConfig, Environment } from '@bunary/core';
+import { createConfig, defineConfig, Environment } from '@bunary/core';
 
-export default defineConfig({
-  app: {
-    name: 'My API',
-    env: Environment.DEVELOPMENT,
-    debug: true,
-  },
-});
+export const config = createConfig(
+  defineConfig({
+    app: {
+      name: 'My API',
+      env: Environment.DEVELOPMENT,
+      debug: true,
+    },
+  }),
+);
 ```
 
 ## API Reference
@@ -46,6 +48,7 @@ export default defineConfig({
 | Export | Type | Description |
 |--------|------|-------------|
 | `defineConfig` | Function | Create typed configuration |
+| `createConfig` | Function | Create an instance-scoped config store (`get/set/clear`) |
 | `env` | Function | Access environment variables with type coercion |
 | `isDev` | Function | Check if NODE_ENV is development |
 | `isProd` | Function | Check if NODE_ENV is production |
@@ -54,3 +57,20 @@ export default defineConfig({
 | `AppConfig` | Type | App configuration interface |
 | `Environment` | Const | Environment constants (DEVELOPMENT, PRODUCTION, TEST) |
 | `EnvironmentType` | Type | Union type for environment values |
+
+## Migration note: `getBunaryConfig()`
+
+`getBunaryConfig()` no longer returns a global config. Use `createConfig()` to create an instance-scoped store and call `store.get()` instead.
+
+Before:
+
+```ts
+const config = getBunaryConfig();
+```
+
+After:
+
+```ts
+const store = createConfig(defineConfig({ /* ... */ }));
+const config = store.get();
+```
