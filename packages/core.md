@@ -32,7 +32,7 @@ if (isDev()) {
 ```typescript
 import { createConfig, defineConfig, Environment } from '@bunary/core';
 
-export const config = createConfig(
+export const configStore = createConfig(
   defineConfig({
     app: {
       name: 'My API',
@@ -41,6 +41,9 @@ export const config = createConfig(
     },
   }),
 );
+
+// The resolved config object (use this in most app code)
+export default configStore.get();
 ```
 
 ## API Reference
