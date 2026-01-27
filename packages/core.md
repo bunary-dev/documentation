@@ -61,3 +61,16 @@ export const config = createConfig(
 ## Migration note: `getBunaryConfig()`
 
 `getBunaryConfig()` no longer returns a global config. Use `createConfig()` to create an instance-scoped store and call `store.get()` instead.
+
+Before:
+
+```ts
+const config = getBunaryConfig();
+```
+
+After:
+
+```ts
+const store = createConfig(defineConfig({ /* ... */ }));
+const config = store.get();
+```
