@@ -69,6 +69,10 @@ This will update:
 - `packages/orm.md`
 - `packages/cli.md`
 
+### CI drift check
+
+Pull requests are expected to keep `packages/*.md` in sync. CI will fail if `bun run sync:packages` produces changes that are not committed.
+
 ## Writing Documentation
 
 ### Guides
