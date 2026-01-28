@@ -66,3 +66,5 @@ This will:
 - Package documentation files live in `documentation/packages/`
 - Use frontmatter with `title` and `description` fields
 - Follow the same markdown conventions as guides
+
+For the new package-owned docs workflow (`pkg/docs/*.md` synced into this repo), see `PACKAGE_DOCS_CONTRACT.md`.
