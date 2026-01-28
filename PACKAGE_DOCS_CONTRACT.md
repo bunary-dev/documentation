@@ -48,6 +48,14 @@ Each package repo MAY contain (optional):
 
 The docs sync (see documentation issue #7) will read package repo files and write outputs under `documentation/packages/` in this repo.
 
+## Running the sync
+
+From this repo root:
+
+```bash
+bun run sync:packages
+```
+
 ### MVP mapping (phase 1)
 
 To start, we sync only `docs/index.md`:

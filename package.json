@@ -1,0 +1,12 @@
+{
+  "name": "bunary-documentation",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync:packages": "bun scripts/sync-packages.ts",
+    "test": "bun test",
+    "test:sync:packages": "bun test \"$PWD/scripts/sync-packages.test.ts\""
+  }
+}
+
