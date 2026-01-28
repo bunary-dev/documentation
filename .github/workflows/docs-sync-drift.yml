@@ -1,0 +1,33 @@
+name: Docs sync drift check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync_drift:
+    name: Verify synced package docs are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Run docs sync
+        run: bun run sync:packages
+
+      - name: Fail on drift
+        shell: bash
+        run: |
+          if ! git diff --quiet -- packages; then
+            echo "::error::Synced package docs are out of date. Run 'bun run sync:packages' and commit the changes."
+            git --no-pager diff -- packages
+            exit 1
+          fi
+
