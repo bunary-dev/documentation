@@ -52,6 +52,23 @@ This will:
 2. Convert them to React components using the `marked` library
 3. Output to `site/src/pages/docs/`
 
+## Syncing package docs (pkg/docs → documentation/packages)
+
+Package documentation is authored in each package repo under `docs/` and synced into this repo under `packages/`.
+
+Run:
+
+```bash
+bun run sync:packages
+```
+
+This will update:
+- `packages/core.md`
+- `packages/http.md`
+- `packages/auth.md`
+- `packages/orm.md`
+- `packages/cli.md`
+
 ## Writing Documentation
 
 ### Guides
