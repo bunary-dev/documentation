@@ -81,9 +81,21 @@ This preserves the site’s existing “one page per package” model while allo
 
 ---
 
+## README vs docs/ (separation of concern)
+
+Package repos have two doc surfaces: the README (npm, GitHub) and the `docs/` directory. They serve different readers. Duplicating the same content in both leads to drift. Split responsibilities instead.
+
+README.md is the first thing people see on npm or GitHub. Keep it short. One or two paragraphs on what the package does, install command, minimal usage (e.g. one code block), and a line pointing to full docs: "Full reference: see `docs/index.md` in this repo or the docs site." Do not repeat the full command list, API reference, or generated-output examples here; that belongs in `docs/`.
+
+docs/index.md is the canonical package doc. It gets synced into this repo as `packages/<name>.md` and is the source for the docs site. Put the full reference here: all commands or APIs, examples, programmatic usage, generated file examples. When you add a feature, update `docs/index.md` (and run or trigger sync). README can stay stable until the package’s role meaningfully changes.
+
+If README and docs/index.md both list "all commands" or the same examples, fix it: trim README to quick ref and link; keep the detail in docs/index.md only.
+
+---
+
 ## Ownership
 
 - `guides/**` is authored and maintained in this repo.
-- `packages/*.md` is considered **synced output** once the sync is in place.
-- Canonical package docs content should live in each package repo under `docs/`.
+- `packages/*.md` is synced output from package `docs/index.md`; do not hand-edit except when fixing sync bugs.
+- Canonical package docs content lives in each package repo under `docs/`.
 
