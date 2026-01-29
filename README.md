@@ -73,6 +73,8 @@ This will update:
 
 Pull requests are expected to keep `packages/*.md` in sync. CI will fail if `bun run sync:packages` produces changes that are not committed.
 
+When and how to run sync so package changes reach this repo: see [PUBLISH_WORKFLOW.md](./PUBLISH_WORKFLOW.md).
+
 ## Writing Documentation
 
 ### Guides
