@@ -1,8 +1,8 @@
 # Documentation review (packages → Documentation)
 
-Use this when you’re checking whether Documentation is complete and consistent. Scope: this repo and package `docs/` only. Site build and site-specific updates are separate (see TODO section 5).
+Use this when you’re checking whether Documentation is complete and consistent. Scope: this repo and package `docs/` only. Site build and site-specific updates are out of scope for this checklist; track them in the docs site repo or via an issue in this repo (e.g. [bunary-dev/documentation#2](https://github.com/bunary-dev/documentation/issues/2) for umbrella/site scope).
 
-Contract: Is PACKAGE_DOCS_CONTRACT still accurate? If we changed how README and docs/index.md split (see #14) or how sync works, update the contract. Same for PUBLISH_WORKFLOW if the “when/who runs sync” process changes.
+Contract: Is PACKAGE_DOCS_CONTRACT still accurate? If we changed how README and docs/index.md split (see #14) or how sync works, update the contract. Same for the docs sync workflow (`.github/workflows/docs-sync-drift.yml`) if the “when/who runs sync” process changes.
 
 Per-package docs: For each of core, http, auth, orm, cli, does that package’s `docs/index.md` exist and match what we ship? Run `bun run sync:packages` and commit any changes so `packages/*.md` here reflect the package repos. If a package added a feature and didn’t update `docs/index.md`, that’s a gap: fix it in the package repo, then sync.
 
