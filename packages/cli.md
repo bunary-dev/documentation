@@ -21,10 +21,97 @@ bunx @bunary/cli --help
 
 ## Commands (high level)
 
-- `bunary init [name]` — Create a new Bunary project
-- `bunary model:make <table-name>` — Generate an ORM model file
+| Command | Description |
+|--------|-------------|
+| `bunary init [name] [--auth basic\|jwt]` | Create a new Bunary project |
+| `bunary model:make <table-name>` | Generate ORM model in `src/models/` |
+| `bunary middleware:make <name>` | Generate middleware in `src/middleware/` |
+| `bunary migration:make <name>` | Create migration in `./migrations/` |
+| `bunary migrate` | Run pending migrations |
+| `bunary migrate:rollback` | Rollback last migration batch |
+| `bunary migrate:status` | Show migration status |
+| `bunary route:make <name>` | Generate route module in `src/routes/` |
+| `bunary --help`, `bunary --version` | Help and version |
 
-See the README for the full command reference until the CLI docs are expanded.
+### bunary init [name] [--auth basic|jwt]
+
+Creates a new Bunary project. You can pass a directory name or `.` for the current directory. With `--auth basic` or `--auth jwt` you get auth middleware stubs (same as running `middleware:make basic` or `jwt` after init).
+
+```bash
+bunary init my-app
+bunary init my-app --auth jwt
+bunary init .
+```
+
+The command creates `package.json`, `bunary.config.ts`, `src/index.ts`, and `src/routes/` (main, groupExample, index). If you used `--auth`, it also creates `src/middleware/basic.ts` or `jwt.ts` and wires it in the entrypoint. Next steps: `cd <name>`, `bun install`, `bun run dev`.
+
+### bunary model:make \<table-name\>
+
+Generates an ORM model file in `src/models/`. Table names are converted to PascalCase (e.g. `user_profile` → `UserProfile.ts`). You must be in a Bunary project (package.json with `@bunary/core`). The command will not overwrite an existing file.
+
+### bunary middleware:make \<name\>
+
+Generates a middleware file in `src/middleware/`. For names `basic` or `jwt` it uses the auth stubs (Basic or JWT guard); for other names it uses a generic `(ctx, next)` stub. Requires a Bunary project.
+
+### bunary migration:make \<name\>
+
+Creates a migration file in `./migrations/` with a timestamp prefix (e.g. `20260129120000_create_users_table.ts`). The stub derives a table name from the migration name (e.g. `create_users_table` → `"users"`). Requires `@bunary/orm` in the project.
+
+### bunary migrate, migrate:rollback, migrate:status
+
+Run pending migrations, rollback the last batch, or show status. The CLI runs your project’s migrator; on first use it creates `scripts/migrate.ts`. The project needs `src/config/orm.ts` that calls `setOrmConfig` so the migrator can connect.
+
+### bunary route:make \<name\>
+
+Generates a route module in `src/routes/` with a register function (e.g. `registerUsers(app)`). You then add that function to `src/routes/index.ts` and call it from `registerRoutes`. Requires a Bunary project.
+
+## Generated files (examples)
+
+What init and the generators produce.
+
+**package.json (default):** dependencies include `@bunary/core` and `@bunary/http`. With `--auth basic` or `--auth jwt`, `@bunary/auth` is added.
+
+**bunary.config.ts:** Uses `defineConfig` from `@bunary/core`. Sets app name, env, debug.
+
+**src/index.ts:** Creates the app with `createApp`, calls `registerRoutes(app)`, then `app.listen({ port: 3000 })`. With auth, it also imports the middleware and calls `app.use(basicMiddleware)` or `app.use(jwtMiddleware)`.
+
+**src/routes/main.ts:** Registers `/` and `/health`. groupExample registers `/api` and `/api/health`. You add `route:make` modules in `src/routes/index.ts`.
+
+**migration:make output:** A file with `up()` and `down()` using `Schema` from `@bunary/orm` (createTable/dropTable).
+
+**middleware:make output (generic):** A single export, e.g. `ensureAuthMiddleware`, of type `Middleware` from `@bunary/http`, with `(ctx, next)` and `return next()`.
+
+**route:make output:** A file that exports e.g. `registerUsers(app: BunaryApp)`; you wire it in `src/routes/index.ts`.
+
+## Programmatic API
+
+You can call init and the project generators from code. All of them are async.
+
+```typescript
+import {
+  init,
+  generatePackageJson,
+  generateConfig,
+  generateEntrypoint,
+  generateRoutesMain,
+  generateRoutesIndex,
+  generateRoutesGroupExample,
+  generateMiddlewareContent,
+  makeModel,
+} from "@bunary/cli";
+import type { InitOptions } from "@bunary/cli";
+
+await init("my-app");
+await init("my-app", { auth: "jwt" });
+
+const packageJson = await generatePackageJson("my-app");
+const config = await generateConfig("my-app");
+const entrypoint = await generateEntrypoint({ auth: "basic" });
+
+await makeModel("user_profile");  // run from a Bunary project directory
+```
+
+InitOptions: `{ auth?: "basic" | "jwt" }`. Pass to `init`, `generatePackageJson`, `generateConfig`, `generateEntrypoint`, and the route generators when you want auth scaffolding. Commands like `middleware:make`, `migration:make`, `route:make`, and `migrate` are CLI-only; there is no programmatic API for those.
 
 ## Requirements
 
