@@ -1,177 +1,122 @@
-
 # Guards
 
-Understanding and creating authentication guards.
+Understanding and using authentication guards with app-scoped auth.
 
-## What are Guards?
+## Built-in Guards
 
-Guards define how users are authenticated for each request. They are responsible for extracting credentials from requests (e.g., tokens from headers), validating them, and returning user information. Bunary supports multiple guards, allowing different authentication methods for different parts of your application.
+Use `createAuth()` with built-in guards; auth is available as `ctx.locals.auth`.
 
-## Guard Interface
-
-All guards must implement the following interface:
+### JWT Guard
 
 ```typescript
-interface Guard {
-  /** Unique name for this guard */
-  name: string;
-  
-  /**
-   * Authenticate a request and return the user if valid.
-   * @param request - The incoming HTTP request
-   * @returns The authenticated user or null
-   */
-  authenticate(request: Request): Promise<AuthUser | null> | AuthUser | null;
-}
+import { createApp } from "@bunary/http";
+import { createAuth, createJwtGuard } from "@bunary/auth";
+import type { AuthContext } from "@bunary/auth";
 
-interface AuthUser {
-  id: string | number;
-  [key: string]: unknown;
-}
-```
+const app = createApp();
 
-## Creating a JWT Guard
-
-Here's how to create a JWT-based guard:
-
-```typescript
-import type { Guard, AuthUser } from "@bunary/auth";
-
-const jwtGuard: Guard = {
-  name: "jwt",
-  
-  async authenticate(request: Request): Promise<AuthUser | null> {
-    const token = request.headers.get("Authorization")?.replace("Bearer ", "");
-    
-    if (!token) {
-      return null;
-    }
-    
-    try {
-      // Verify JWT and extract payload (use your JWT library)
-      const payload = await verifyJWT(token, process.env.JWT_SECRET!);
-      
-      return {
-        id: payload.sub,
-        email: payload.email,
-        name: payload.name,
-      };
-    } catch {
-      return null;
-    }
-  },
-};
-```
-
-## API Key Guard
-
-Example of an API key-based guard:
-
-```typescript
-const apiKeyGuard: Guard = {
-  name: "apiKey",
-  
-  async authenticate(request: Request): Promise<AuthUser | null> {
-    const apiKey = request.headers.get("X-API-Key");
-    
-    if (!apiKey) {
-      return null;
-    }
-    
-    // Look up the API key in your database
-    const keyRecord = await db.apiKeys.findByKey(apiKey);
-    
-    if (!keyRecord || keyRecord.revoked) {
-      return null;
-    }
-    
-    return {
-      id: keyRecord.userId,
-      keyId: keyRecord.id,
-      permissions: keyRecord.permissions,
-    };
-  },
-};
-```
-
-## Multiple Guards
-
-Configure multiple guards for different authentication strategies:
-
-```typescript
-import { createAuthManager } from "@bunary/auth";
-
-const authManager = createAuthManager({
+const authMiddleware = createAuth({
   defaultGuard: "jwt",
   guards: {
-    jwt: jwtGuard,
-    apiKey: apiKeyGuard,
+    jwt: createJwtGuard({
+      secret: process.env.JWT_SECRET!,
+      issuer: "my-app",
+      audience: "api",
+    }),
   },
 });
 
-// Use the default guard
-const user = await authManager.authenticate(request);
+app.use(authMiddleware);
 
-// Use a specific guard
-const apiUser = await authManager.authenticate(request, "apiKey");
-```
-
-## Accessing Guards Directly
-
-Access individual guards via the `guard()` method:
-
-```typescript
-// Get the default guard
-const defaultGuard = authManager.guard();
-
-// Get a specific guard by name
-const jwtGuard = authManager.guard("jwt");
-const apiKeyGuard = authManager.guard("apiKey");
-
-// Use the guard directly
-const user = await jwtGuard.authenticate(request);
-```
-
-## Guard-Specific Middleware
-
-Create middleware that uses specific guards:
-
-```typescript
-import type { Middleware } from "@bunary/http";
-
-// Factory function to create guard-specific middleware
-function createAuthMiddleware(guardName?: string): Middleware {
-  return async (ctx, next) => {
-    const user = await authManager.authenticate(ctx.request, guardName);
-    
-    if (!user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-    
-    await next();
-  };
-}
-
-// Create middleware for different guards
-const requireJWT = createAuthMiddleware("jwt");
-const requireApiKey = createAuthMiddleware("apiKey");
-
-// Use in routes
-app.use(requireJWT);  // Default for all routes
-
-// Or apply globally
-app.get("/webhook", async (ctx) => {
-  // Authenticate with API key for this specific route
-  const user = await authManager.authenticate(ctx.request, "apiKey");
-  if (!user) {
-    return new Response(JSON.stringify({ error: "Invalid API key" }), {
+app.get("/profile", async (ctx) => {
+  const auth = ctx.locals.auth as AuthContext;
+  await auth.authenticate();
+  if (!auth.check()) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
   }
+  return { user: auth.user() };
+});
+
+app.listen({ port: 3000 });
+```
+
+### Basic Auth Guard
+
+```typescript
+import { createAuth, createBasicGuard } from "@bunary/auth";
+
+const authMiddleware = createAuth({
+  defaultGuard: "basic",
+  guards: {
+    basic: createBasicGuard({
+      validateUser: async (username, password) => {
+        const user = await db.users.findByUsername(username);
+        if (!user || !(await verifyPassword(password, user.passwordHash))) return null;
+        return { id: user.id, username: user.username };
+      },
+    }),
+  },
+});
+
+app.use(authMiddleware);
+```
+
+## Multiple Guards
+
+Register multiple guards and use the default or a specific guard per request:
+
+```typescript
+const authMiddleware = createAuth({
+  defaultGuard: "jwt",
+  guards: {
+    jwt: createJwtGuard({ secret: process.env.JWT_SECRET! }),
+    basic: createBasicGuard({ validateUser: myValidateUser }),
+  },
+});
+
+app.use(authMiddleware);
+
+app.get("/profile", async (ctx) => {
+  const auth = ctx.locals.auth as AuthContext;
+  await auth.authenticate(); // uses default guard (jwt)
+  if (!auth.check()) return unauthorized();
+  return { user: auth.user() };
+});
+
+app.get("/webhook", async (ctx) => {
+  const auth = ctx.locals.auth as AuthContext;
+  await auth.authenticate("basic"); // use basic for this route
+  if (!auth.check()) return unauthorized();
   return { received: true };
+});
+```
+
+## Custom Guards
+
+Guards implement the `Guard` interface: `name` and `authenticate(request)` returning `AuthUser | null`:
+
+```typescript
+import type { Guard, AuthUser } from "@bunary/auth";
+
+const apiKeyGuard: Guard = {
+  name: "apiKey",
+  async authenticate(request: Request): Promise<AuthUser | null> {
+    const apiKey = request.headers.get("X-API-Key");
+    if (!apiKey) return null;
+    const keyRecord = await db.apiKeys.findByKey(apiKey);
+    if (!keyRecord?.active) return null;
+    return { id: keyRecord.userId, keyId: keyRecord.id };
+  },
+};
+
+const authMiddleware = createAuth({
+  defaultGuard: "jwt",
+  guards: {
+    jwt: createJwtGuard({ secret: process.env.JWT_SECRET! }),
+    apiKey: apiKeyGuard,
+  },
 });
 ```

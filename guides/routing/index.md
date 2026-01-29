@@ -15,7 +15,7 @@ app.get("/", () => {
   return { message: "Hello, World!" };
 });
 
-app.listen(3000);
+app.listen({ port: 3000 });
 ```
 
 ## Available HTTP Methods
@@ -85,6 +85,7 @@ Every route handler receives a `RequestContext` object with the following proper
 | `request` | Request | The native Fetch API Request object |
 | `params` | Record<string, string> | URL route parameters |
 | `query` | URLSearchParams | Query string parameters |
+| `locals` | Record<string, unknown> | Per-request data (e.g. `ctx.locals.auth` from auth middleware) |
 
 ## Accessing Request Data
 
