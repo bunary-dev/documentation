@@ -5,7 +5,7 @@ Securing your API with the Bunary authentication system.
 
 ## Introduction
 
-The `@bunary/auth` package provides a flexible authentication layer with support for multiple guards. Guards are responsible for authenticating requests and returning user information.
+The `@bunary/auth` package provides a flexible authentication layer with support for multiple guards. **App-scoped integration** (recommended) attaches auth to each request via `ctx.locals.auth`; there is no global auth manager.
 
 ## Installation
 
@@ -13,136 +13,70 @@ The `@bunary/auth` package provides a flexible authentication layer with support
 bun add @bunary/auth
 ```
 
-## Basic Setup
+## App-Scoped Setup (Recommended)
 
-Configure the auth manager with your guards. Guards are objects with a `name` and an `authenticate` method:
+Use `createAuth()` to build auth middleware for your app. Auth state is per request and available as `ctx.locals.auth`:
 
 ```typescript
-import { createAuthManager, setAuthManager } from "@bunary/auth";
+import { createApp } from "@bunary/http";
+import { createAuth, createJwtGuard } from "@bunary/auth";
+import type { AuthContext } from "@bunary/auth";
 
-const authManager = createAuthManager({
+const app = createApp();
+
+const authMiddleware = createAuth({
   defaultGuard: "jwt",
   guards: {
-    jwt: {
-      name: "jwt",
-      async authenticate(request) {
-        const token = request.headers.get("Authorization")?.replace("Bearer ", "");
-        if (!token) return null;
-        
-        // Validate token and return user
-        const user = await verifyJWT(token);
-        return user;
-      },
-    },
+    jwt: createJwtGuard({
+      secret: process.env.JWT_SECRET!,
+      issuer: "my-app",
+      audience: "api",
+    }),
   },
 });
 
-// Set as global auth manager (optional)
-setAuthManager(authManager);
+app.use(authMiddleware);
+
+app.get("/profile", async (ctx) => {
+  const auth = ctx.locals.auth as AuthContext;
+  await auth.authenticate();
+
+  if (!auth.check()) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  return { user: auth.user() };
+});
+
+app.listen({ port: 3000 });
 ```
 
-## Authenticating Requests
+## Authenticating in Routes
 
-Use the auth manager to authenticate incoming requests:
+After `app.use(authMiddleware)`, every request has `ctx.locals.auth`. Call `authenticate()` then `check()` and `user()`:
 
 ```typescript
 app.get("/profile", async (ctx) => {
-  const user = await authManager.authenticate(ctx.request);
-  
-  if (!user) {
+  const auth = ctx.locals.auth as AuthContext;
+  await auth.authenticate();
+
+  if (!auth.check()) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
   }
-  
-  return { user };
+
+  return { user: auth.user() };
 });
 ```
 
-## Creating Auth Middleware
+## Built-in Guards
 
-Create reusable authentication middleware:
+- **JWT:** `createJwtGuard({ secret, issuer?, audience? })` — validates Bearer tokens (HS256).
+- **Basic:** `createBasicGuard({ validateUser })` — validates Basic auth; you provide a function that checks username/password.
 
-```typescript
-import type { Middleware } from "@bunary/http";
-
-const requireAuth: Middleware = async (ctx, next) => {
-  const user = await authManager.authenticate(ctx.request);
-  
-  if (!user) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  
-  // Continue to route handler
-  await next();
-};
-
-// Use as global middleware for protected routes
-app.use(requireAuth);
-```
-
-## Accessing the User
-
-After authentication, access the user via the auth manager:
-
-```typescript
-app.get("/profile", async (ctx) => {
-  await authManager.authenticate(ctx.request);
-  
-  // Get the authenticated user
-  const user = authManager.user();
-  
-  // Check if authenticated
-  if (!authManager.check()) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  
-  return { id: user?.id };
-});
-```
-
-## The auth() Helper
-
-Use the `auth()` helper to access the global auth manager:
-
-```typescript
-import { auth, setAuthManager } from "@bunary/auth";
-
-// First, set up the global auth manager
-setAuthManager(authManager);
-
-// Then use auth() anywhere in your app
-app.get("/dashboard", async (ctx) => {
-  await auth().authenticate(ctx.request);
-  
-  if (!auth().check()) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  
-  const user = auth().user();
-  return { dashboard: true, user };
-});
-```
-
-## Logout
-
-Clear the current authentication state:
-
-```typescript
-app.post("/logout", async (ctx) => {
-  // Clear the auth state
-  authManager.logout();
-  
-  return { message: "Logged out successfully" };
-});
-```
+See [Guards](./guards.md) for custom guards and details.

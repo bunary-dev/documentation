@@ -45,7 +45,7 @@ app.use(cors);
 
 app.get("/", () => ({ message: "Hello!" }));
 
-app.listen(3000);
+app.listen({ port: 3000 });
 ```
 
 ## Middleware Order
