@@ -73,6 +73,8 @@ This will update:
 
 Pull requests are expected to keep `packages/*.md` in sync. CI will fail if `bun run sync:packages` produces changes that are not committed.
 
+Review checklist (contract, per-package alignment, guides): [DOCS_REVIEW.md](./DOCS_REVIEW.md).
+
 ## Writing Documentation
 
 ### Guides
