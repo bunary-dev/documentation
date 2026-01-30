@@ -18,6 +18,8 @@ app.get("/", () => {
 app.listen({ port: 3000 });
 ```
 
+You can pass options to `createApp({ basePath?, onNotFound?, onMethodNotAllowed?, onError? })` (e.g. `basePath: "/api"` to prefix all routes). See the [@bunary/http](/docs/packages/http) package docs for full options. HEAD requests use GET routes automatically; OPTIONS returns allowed methods.
+
 ## Available HTTP Methods
 
 The router supports the following HTTP methods:
@@ -83,7 +85,7 @@ Every route handler receives a `RequestContext` object with the following proper
 | Property | Type | Description |
 |----------|------|-------------|
 | `request` | Request | The native Fetch API Request object |
-| `params` | Record<string, string> | URL route parameters |
+| `params` | Record<string, string \| undefined> | URL route parameters (optional params may be `undefined`) |
 | `query` | URLSearchParams | Query string parameters |
 | `locals` | Record<string, unknown> | Per-request data (e.g. `ctx.locals.auth` from auth middleware) |
 
