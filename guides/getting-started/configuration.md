@@ -89,7 +89,7 @@ PORT=3000
 
 ## Environment Helpers
 
-Bunary provides convenient helpers to check the current environment based on `NODE_ENV`:
+Bunary provides convenient helpers to check the current environment (they read from the `NODE_ENV` environment variable):
 
 ```typescript
 import { isDev, isProd, isTest } from "@bunary/core";

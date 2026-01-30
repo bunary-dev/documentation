@@ -35,11 +35,11 @@ bun run dev
 
 This will create a new directory with a Bunary project scaffold including:
 
-- `package.json` (with `@bunary/core`, `@bunary/http`; add `--auth basic` or `--auth jwt` to include `@bunary/auth`)
-- `bunary.config.ts` (uses `defineConfig` from `@bunary/core`)
-- Entry point at `src/index.ts` (imports and calls `registerRoutes` from `src/routes`, then `app.listen({ port: 3000 })`)
-- `src/routes/` (main, groupExample, index) — `src/routes/index.ts` defines and exports `registerRoutes`; add more with `bunary route:make <name>`
-- With `--auth basic` or `--auth jwt`: `src/middleware/basic.ts` or `jwt.ts` wired in the entrypoint
+- **package.json** — `@bunary/core`, `@bunary/http`; add `--auth basic` or `--auth jwt` to include `@bunary/auth`
+- **bunary.config.ts** — uses `defineConfig` from `@bunary/core`
+- **src/index.ts** — entry point; imports and calls `registerRoutes` from `src/routes`, then `app.listen({ port: 3000 })`
+- **src/routes/** — main, groupExample, index; `src/routes/index.ts` defines and exports `registerRoutes`. Add more with `bunary route:make <name>`
+- **With --auth** — `src/middleware/basic.ts` or `jwt.ts` wired in the entrypoint
 
 ## Manual Installation
 
