@@ -52,23 +52,19 @@ documentation/
 
 ## Building Documentation
 
-The documentation is built from markdown files into React components for the site.
+All build/sync scripts live in this repo and are run from the documentation repo root (e.g. `cd documentation && bun run …`).
 
-Run the build script:
-```bash
-bun run scripts/build-docs.ts
-```
+### Commands
 
-This will:
-1. Read markdown files from `documentation/guides/` and `documentation/packages/`
-2. Convert them to React components using the `marked` library
-3. Output to `site/src/pages/docs/`
+| Command | What it does |
+|--------|----------------|
+| `bun run sync:packages` | Fetch package `docs/index.md` from GitHub and write `packages/*.md` in this repo. |
+| `bun run sync:site` | Build guides + packages markdown into React components for the site. Cleans the site docs output dir, then generates. |
+| `bun run sync` | Run `sync:packages` then `sync:site` (full pipeline). |
 
-## Syncing package docs (pkg/docs → documentation/packages)
+### sync:packages
 
 Package documentation is authored in each package repo under `docs/` and synced into this repo under `packages/`.
-
-Run:
 
 ```bash
 bun run sync:packages
@@ -86,6 +82,21 @@ This will update:
 Pull requests are expected to keep `packages/*.md` in sync. CI will fail if `bun run sync:packages` produces changes that are not committed.
 
 Review checklist (contract, per-package alignment, guides): [DOCS_REVIEW.md](./DOCS_REVIEW.md).
+
+### sync:site (build docs for site)
+
+Reads `guides/` and `packages/` in this repo and writes React components to the site docs directory.
+
+- **Default output:** `../site/src/pages/docs` (when run from this repo, assumes site is a sibling directory).
+- **Custom output:** set `DOCS_SITE_OUTPUT` to the absolute path of the site’s docs folder (e.g. when the site is in a different repo).
+
+```bash
+bun run sync:site
+# Or with a custom site path:
+DOCS_SITE_OUTPUT=/path/to/site/src/pages/docs bun run sync:site
+```
+
+The script clears the output directory (except `DocsLayout.tsx`) before generating, so each run leaves only the current docs.
 
 ## Writing Documentation
 

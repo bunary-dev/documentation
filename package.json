@@ -5,8 +5,14 @@
   "type": "module",
   "scripts": {
     "sync:packages": "bun scripts/sync-packages.ts",
+    "sync:site": "bun scripts/sync-site.ts",
+    "sync": "bun run sync:packages && bun run sync:site",
     "test": "bun test",
     "test:sync:packages": "bun test \"$PWD/scripts/sync-packages.test.ts\""
+  },
+  "devDependencies": {
+    "@types/marked": "6.0.0",
+    "marked": "17.0.1"
   }
 }
 
