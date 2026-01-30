@@ -32,9 +32,13 @@ bun run dev
 
 This will create a new directory with a Bunary project scaffold including:
 
-- Pre-configured `bunary.config.ts`
-- Entry point at `src/index.ts`
-- Package.json with development scripts
+- `package.json` (with `@bunary/core`, `@bunary/http`; add `--auth basic` or `--auth jwt` to include `@bunary/auth`)
+- `bunary.config.ts` (uses `defineConfig` from `@bunary/core`)
+- Entry point at `src/index.ts` (calls `registerRoutes`, then `app.listen({ port: 3000 })`)
+- `src/routes/` (main, groupExample, index) — add more with `bunary route:make <name>`
+- With `--auth basic` or `--auth jwt`: `src/middleware/basic.ts` or `jwt.ts` wired in the entrypoint
+
+Next: `cd my-api`, `bun install`, `bun run dev`.
 
 ## Manual Installation
 

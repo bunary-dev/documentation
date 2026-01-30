@@ -10,18 +10,20 @@ When you create a new Bunary project using `bunary init`, you'll get the followi
 ```
 my-api/
 ├── src/
-│   ├── index.ts          # Application entry point
-│   ├── routes/
-│   │   └── api.ts        # API route definitions
-│   └── middleware/
-│       └── logger.ts     # Custom middleware
-├── tests/
-│   └── api.test.ts       # Test files
-├── bunary.config.ts      # Bunary configuration
-├── package.json
-├── tsconfig.json
-└── .env.example
+│   ├── index.ts          # Application entry point (calls registerRoutes, app.listen)
+│   └── routes/
+│       ├── index.ts      # Aggregates route modules, calls registerRoutes
+│       ├── main.ts       # Registers / and /health
+│       └── groupExample.ts  # Example route group (e.g. /api, /api/health)
+├── bunary.config.ts      # Bunary configuration (defineConfig from @bunary/core)
+└── package.json
 ```
+
+With `bunary init my-api --auth basic` or `--auth jwt`, you also get:
+
+- `src/middleware/basic.ts` or `jwt.ts` (auth stub), wired in `src/index.ts`
+
+Add more routes with `bunary route:make <name>`, middleware with `bunary middleware:make <name>`, and models with `bunary model:make <table-name>`.
 
 ## Directory Overview
 
