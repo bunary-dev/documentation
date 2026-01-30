@@ -74,9 +74,11 @@ app.get("/profile", async (ctx) => {
 });
 ```
 
+Use `auth.require()` to get the current user or throw if unauthenticated; use `auth.logout()` to clear auth state for the request.
+
 ## Built-in Guards
 
 - **JWT:** `createJwtGuard({ secret, issuer?, audience? })` — validates Bearer tokens (HS256).
-- **Basic:** `createBasicGuard({ validateUser })` — validates Basic auth; you provide a function that checks username/password.
+- **Basic:** `createBasicGuard({ verify(username, password, request) })` — validates Basic auth; you provide a `verify` function that returns an `AuthUser` or `null`.
 
 See [Guards](./guards.md) for custom guards and details.

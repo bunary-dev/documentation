@@ -10,4 +10,6 @@ Per-package docs: For each of core, http, auth, orm, cli, does that package’s 
 
 Guides: Files under `guides/` sometimes reference packages (APIs, install commands, examples). When a package’s API or behavior changes, check whether any guide is now wrong. Update the guide here; don’t duplicate package API detail, but fix broken examples or outdated steps.
 
+**Guide sections to audit** (don’t skip any): `getting-started/`, `basics/`, `routing/`, **`orm/`**, `security/`. For each section, confirm content and examples match the current package APIs (e.g. `orm/` vs `@bunary/orm`).
+
 Gaps: Anything else that would leave readers with wrong or missing info counts as a gap. Prefer fixing the source (package `docs/` or a guide) and syncing or committing here, rather than one-off edits to `packages/*.md` that the next sync would overwrite.

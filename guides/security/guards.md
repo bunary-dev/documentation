@@ -52,7 +52,7 @@ const authMiddleware = createAuth({
   defaultGuard: "basic",
   guards: {
     basic: createBasicGuard({
-      validateUser: async (username, password) => {
+      verify: async (username, password, request) => {
         const user = await db.users.findByUsername(username);
         if (!user || !(await verifyPassword(password, user.passwordHash))) return null;
         return { id: user.id, username: user.username };
@@ -73,7 +73,7 @@ const authMiddleware = createAuth({
   defaultGuard: "jwt",
   guards: {
     jwt: createJwtGuard({ secret: process.env.JWT_SECRET! }),
-    basic: createBasicGuard({ validateUser: myValidateUser }),
+    basic: createBasicGuard({ verify: myVerify }),
   },
 });
 
@@ -96,7 +96,7 @@ app.get("/webhook", async (ctx) => {
 
 ## Custom Guards
 
-Guards implement the `Guard` interface: `name` and `authenticate(request)` returning `AuthUser | null`:
+Guards implement the `Guard` interface: `name` (string) and `authenticate(request: Request)` returning `Promise<AuthUser | null>` or `AuthUser | null`:
 
 ```typescript
 import type { Guard, AuthUser } from "@bunary/auth";

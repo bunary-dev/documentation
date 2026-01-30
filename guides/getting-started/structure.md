@@ -10,18 +10,22 @@ When you create a new Bunary project using `bunary init`, you'll get the followi
 ```
 my-api/
 ├── src/
-│   ├── index.ts          # Application entry point
-│   ├── routes/
-│   │   └── api.ts        # API route definitions
-│   └── middleware/
-│       └── logger.ts     # Custom middleware
-├── tests/
-│   └── api.test.ts       # Test files
-├── bunary.config.ts      # Bunary configuration
-├── package.json
-├── tsconfig.json
-└── .env.example
+│   ├── index.ts          # Application entry point (calls registerRoutes, app.listen)
+│   └── routes/
+│       ├── index.ts      # Defines and exports registerRoutes (called from src/index.ts)
+│       ├── main.ts       # Registers / and /health
+│       └── groupExample.ts  # Example route group (e.g. /api, /api/health)
+├── bunary.config.ts      # Bunary configuration (defineConfig from @bunary/core)
+└── package.json
 ```
+
+Optional (add as needed): `tests/`, `tsconfig.json`, `.env`, `.env.example` — not created by `bunary init`; see Directory Overview below.
+
+With `bunary init my-api --auth basic` or `--auth jwt`, you also get:
+
+- `src/middleware/basic.ts` or `jwt.ts` (auth stub), wired in `src/index.ts`
+
+Add more routes with `bunary route:make <name>`, middleware with `bunary middleware:make <name>`, and models with `bunary model:make <table-name>`.
 
 ## Directory Overview
 
@@ -39,7 +43,7 @@ The `src` directory contains your application source code. This is where you'll 
 
 ### The tests Directory
 
-The `tests` directory contains your test files. Bunary uses Bun's built-in test runner, so you can run tests with `bun test`.
+The `tests` directory (optional; not created by `bunary init`) contains your test files. Bunary uses Bun's built-in test runner, so you can run tests with `bun test`.
 
 ### Configuration Files
 
@@ -47,9 +51,9 @@ The `tests` directory contains your test files. Bunary uses Bun's built-in test 
 |------|---------|
 | `bunary.config.ts` | Bunary application configuration |
 | `package.json` | Dependencies and scripts |
-| `tsconfig.json` | TypeScript configuration |
-| `.env` | Environment variables (git-ignored) |
-| `.env.example` | Example environment variables template |
+| `tsconfig.json` | TypeScript configuration (optional; add if needed) |
+| `.env` | Environment variables (optional; git-ignored) |
+| `.env.example` | Example environment variables template (optional; add as needed) |
 
 ## Larger Projects
 

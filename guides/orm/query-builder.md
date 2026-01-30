@@ -14,12 +14,12 @@ const users = await Model.table("users").all();
 // Select specific columns
 const users = await Model.table("users")
   .select("id", "name", "email")
-  .get();
+  .all();
 
 // Exclude sensitive fields
 const users = await Model.table("users")
   .exclude("password", "secret_key")
-  .get();
+  .all();
 ```
 
 ## Filtering Records
@@ -30,7 +30,7 @@ Filter records using the `where` method:
 // Filter records
 const activeUsers = await Model.table("users")
   .where("status", "=", "active")
-  .get();
+  .all();
 ```
 
 ## Ordering and Limiting
@@ -42,7 +42,7 @@ Order and limit query results:
 const recentUsers = await Model.table("users")
   .orderBy("createdAt", "desc")
   .limit(10)
-  .get();
+  .all();
 ```
 
 ## Common Patterns
@@ -56,7 +56,7 @@ const perPage = 10;
 const users = await User
   .offset((page - 1) * perPage)
   .limit(perPage)
-  .get();
+  .all();
 ```
 
 ### Counting Records

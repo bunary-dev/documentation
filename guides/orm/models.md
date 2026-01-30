@@ -10,12 +10,12 @@ Create model classes that extend `BaseModel`:
 import { BaseModel } from "@bunary/orm";
 
 class Post extends BaseModel {
-  static tableName = "posts";
+  protected static tableName = "posts";
   protected static timestamps = false; // Disable timestamps
 }
 
 class Comment extends BaseModel {
-  static tableName = "comments";
+  protected static tableName = "comments";
   protected static protected = ["internal_notes"];
 }
 ```
@@ -26,7 +26,7 @@ Automatically exclude sensitive fields from queries:
 
 ```typescript
 class User extends BaseModel {
-  static tableName = "users";
+  protected static tableName = "users";
   protected static protected = ["password", "api_key"];
 }
 
@@ -41,7 +41,7 @@ Automatically handle `createdAt` and `updatedAt` fields:
 
 ```typescript
 class Post extends BaseModel {
-  static tableName = "posts";
+  protected static tableName = "posts";
   // timestamps defaults to ["createdAt", "updatedAt"]
   // Set to false to disable
   protected static timestamps = false;
