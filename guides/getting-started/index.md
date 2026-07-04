@@ -45,11 +45,20 @@ This will create a new directory with a Bunary project scaffold including:
 
 If you prefer to set up Bunary manually or add it to an existing project:
 
-### 1. Install Core Packages
+### 1. Install Packages
 
+**Option A — Umbrella package (all-in-one):**
+```bash
+bun add bunary
+```
+Then import from `bunary` or `bunary/http`, `bunary/core`, etc.
+
+**Option B — Individual packages:**
 ```bash
 bun add @bunary/core @bunary/http
 ```
+
+The steps below use `@bunary/core` and `@bunary/http` imports. If you installed the umbrella package, use `bunary/core` and `bunary/http` (or `bunary` for the main exports) instead.
 
 ### 2. Create Configuration File
 

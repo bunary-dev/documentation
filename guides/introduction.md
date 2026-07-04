@@ -40,7 +40,15 @@ cd my-api && bun install && bun run dev
 
 ## Packages
 
-Bunary is distributed as a set of modular packages under the `@bunary` npm scope:
+Bunary offers two installation options:
+
+**Umbrella package** — Install everything in one step:
+```bash
+bun add bunary
+```
+Use `import { createApp, env } from "bunary"` or subpaths: `bunary/core`, `bunary/http`, `bunary/auth`.
+
+**Individual packages** — Install only what you need under the `@bunary` npm scope:
 
 | Package | Description |
 |---------|-------------|
