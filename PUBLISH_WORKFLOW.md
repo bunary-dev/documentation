@@ -6,6 +6,8 @@ When to sync: after you merge or release a package change that touched `docs/` o
 
 How to sync: from this repo root run `bun run sync:packages`. The script fetches each package’s `docs/index.md` from GitHub (main) and writes `packages/*.md` here. No local package clones needed. Commit the changed `packages/*.md` and push.
 
+To preview package-doc changes before pushing, run `bun run scripts/sync-packages.ts --local` — it reads the local sibling checkouts instead of GitHub main. Do not commit locally-sourced output; the committed `packages/*.md` must come from the default remote sync.
+
 Who runs it: whoever is doing the release or the follow-up doc pass. There is no automated trigger yet. A practical rule: when you cut a package release or merge a feature that changed docs, run sync and open a PR in this repo with the updated `packages/*.md`, or add “run sync and commit” to the release checklist for that package.
 
 CI: PRs in this repo run a drift check. If `bun run sync:packages` would produce changes but the PR didn’t include them, CI fails. So if a package’s `docs/index.md` changed and you didn’t sync, the next person to touch this repo may hit that failure; then they run sync and commit the result.
