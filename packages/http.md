@@ -20,6 +20,8 @@ Part of the [Bunary](https://github.com/bunary-dev) ecosystem: a Bun-first backe
 - 🏷️ **Named Routes** - URL generation with route names
 - ✅ **Route Constraints** - Validate parameters with regex patterns
 - ❓ **Optional Parameters** - Flexible routes with optional path segments
+- 🌐 **Wildcard Routes** - Catch-all `/*` and `/**` patterns for SPA fallbacks and proxies
+- 🔀 **CORS** - Built-in CORS middleware with configurable origins, methods, headers, and credentials
 
 ## Installation
 
@@ -74,6 +76,7 @@ apiApp.get('/users', () => ({})); // Matches /api/users
   - Called when a route handler or middleware throws an error
   - Receives `RequestContext` and the error object
   - Can return `Response` or `HandlerResponse`
+  - If not provided, the default handler hides error details in production
 
 **Example with custom error handlers:**
 
@@ -96,6 +99,32 @@ const app = createApp({
 });
 ```
 
+#### Typed Locals
+
+Pass a type parameter to `createApp()` to get type-safe `ctx.locals`:
+
+```typescript
+interface AppLocals {
+  user: { id: number; name: string };
+  requestId: string;
+}
+
+const app = createApp<AppLocals>();
+
+app.use(async (ctx, next) => {
+  ctx.locals.user = await getUser(ctx.request);  // typed
+  ctx.locals.requestId = crypto.randomUUID();     // typed
+  return next();
+});
+
+app.get('/me', (ctx) => ({
+  name: ctx.locals.user.name,       // typed as string
+  requestId: ctx.locals.requestId,  // typed as string
+}));
+```
+
+The generic defaults to `Record<string, unknown>`, so existing code is fully backward-compatible.
+
 ### Route Registration
 
 Register routes using chainable HTTP method helpers:
@@ -104,7 +133,7 @@ Register routes using chainable HTTP method helpers:
 app
   .get('/users', () => ({ users: [] }))
   .post('/users', async (ctx) => {
-    const body = await ctx.request.json();
+    const body = await ctx.json();
     return { id: 1, ...body };
   })
   .put('/users/:id', (ctx) => {
@@ -120,7 +149,7 @@ app
 
 ### Path Parameters
 
-Path parameters are extracted automatically:
+Path parameters are extracted automatically and decoded with `decodeURIComponent`:
 
 ```typescript
 app.get('/users/:id', (ctx) => {
@@ -132,6 +161,58 @@ app.get('/posts/:postId/comments/:commentId', (ctx) => {
   return { postId, commentId };
 });
 ```
+
+#### Typed Parameters
+
+Pass a type parameter to any route method for typed `ctx.params`:
+
+```typescript
+app.get<{ id: string }>('/users/:id', (ctx) => {
+  ctx.params.id;  // string (not string | undefined)
+  return { userId: ctx.params.id };
+});
+
+app.get<{ org: string; repo: string }>('/orgs/:org/repos/:repo', (ctx) => {
+  ctx.params.org;   // string
+  ctx.params.repo;  // string
+  return { org: ctx.params.org, repo: ctx.params.repo };
+});
+
+// Optional params
+app.get<{ format?: string }>('/data/:format?', (ctx) => {
+  return { format: ctx.params.format ?? 'json' };
+});
+```
+
+Values remain strings at runtime — no automatic coercion. The generic only narrows the TypeScript type.
+
+When no type parameter is provided, `ctx.params` defaults to `Record<string, string | undefined>`.
+
+#### URL Encoding and Unicode
+
+Path parameters are automatically decoded from their URL-encoded form:
+
+```typescript
+app.get('/users/:name', (ctx) => {
+  return { name: ctx.params.name };
+});
+
+// GET /users/hello%20world → { name: "hello world" }
+// GET /users/caf%C3%A9     → { name: "café" }
+// GET /users/日本語         → { name: "日本語" }
+```
+
+Encoded slashes (`%2F`) are captured within a single segment and decoded:
+
+```typescript
+app.get('/files/:path', (ctx) => {
+  return { path: ctx.params.path };
+});
+
+// GET /files/dir%2Ffile.txt → { path: "dir/file.txt" }
+```
+
+> **Note:** Route constraints (`.where()`) are checked against the **decoded** parameter value.
 
 ### Query Parameters
 
@@ -157,16 +238,77 @@ app.get('/filter', (ctx) => {
 
 ### Request Context
 
-Route handlers receive a `RequestContext` object:
+Route handlers receive a `RequestContext<TLocals, TParams>` object:
 
 ```typescript
-interface RequestContext {
+interface RequestContext<
+  TLocals extends object = Record<string, unknown>,
+  TParams extends PathParams = PathParams,
+> {
   request: Request;  // Original Bun Request object
-  params: Record<string, string | undefined>;  // Path parameters (optional params may be undefined)
+  params: TParams;   // Path parameters (narrowed by route generic)
   query: URLSearchParams;  // Query parameters (use .get() and .getAll())
-  locals: Record<string, unknown>;  // Per-request storage for middleware and handlers
+  locals: TLocals;   // Per-request storage (narrowed by createApp generic)
+
+  // Body parsing helpers
+  json<T = unknown>(): Promise<T>;     // Parse JSON body (throws BodyParseError)
+  text(): Promise<string>;             // Get body as string
+  formData(): Promise<FormData>;       // Parse form data (throws BodyParseError)
 }
 ```
+
+#### Body Parsing Helpers
+
+`ctx.json()`, `ctx.text()`, and `ctx.formData()` are thin wrappers around the underlying `Request` methods with improved error handling:
+
+```typescript
+// Parse JSON with type inference
+app.post('/users', async (ctx) => {
+  const body = await ctx.json<{ name: string; email: string }>();
+  return { id: 1, name: body.name, email: body.email };
+});
+
+// Get raw text body
+app.post('/webhooks', async (ctx) => {
+  const payload = await ctx.text();
+  return { received: payload.length };
+});
+
+// Parse form data
+app.post('/upload', async (ctx) => {
+  const form = await ctx.formData();
+  const name = form.get('name');
+  return { name };
+});
+```
+
+Malformed bodies throw `BodyParseError`, which you can catch for custom error responses:
+
+```typescript
+import { BodyParseError } from '@bunary/http';
+
+app.post('/users', async (ctx) => {
+  try {
+    return await ctx.json();
+  } catch (error) {
+    if (error instanceof BodyParseError) {
+      return new Response(
+        JSON.stringify({ error: error.message }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    throw error;
+  }
+});
+```
+
+> The original `ctx.request` is still available for advanced use cases (e.g. streaming, `arrayBuffer()`, `blob()`).
+> Note: per the Fetch API, the request body can only be consumed once. If middleware calls `ctx.json()`, `ctx.text()`, or `ctx.formData()`, the downstream handler cannot read the body again; instead, share the parsed data via `ctx.locals` or work with a cloned request if you need to access the body in multiple places.
+
+`TLocals` is set once via `createApp<TLocals>()` and flows to all handlers and middleware.
+`TParams` is set per-route via `app.get<TParams>()` and only affects that handler's `ctx.params`.
+
+Both default to their untyped forms for full backward compatibility.
 
 ### HTTP Method Handling
 
@@ -330,6 +472,53 @@ app.use(async (ctx, next) => {
 });
 ```
 
+### CORS Middleware
+
+Built-in CORS middleware handles preflight `OPTIONS` requests and adds the appropriate headers to actual responses.
+
+```typescript
+import { createApp, cors } from '@bunary/http';
+
+const app = createApp();
+
+// Allow any origin (default)
+app.use(cors());
+```
+
+#### Configuration
+
+```typescript
+app.use(cors({
+  origin: 'https://myapp.com',             // string, string[], or "*" (default)
+  methods: ['GET', 'POST'],                 // default: GET, HEAD, PUT, POST, DELETE, PATCH
+  allowHeaders: ['Content-Type', 'X-Token'], // default: reflects Access-Control-Request-Headers
+  exposeHeaders: ['X-Request-Id'],          // headers the browser may read from the response
+  credentials: true,                        // include Access-Control-Allow-Credentials
+  maxAge: 86400,                            // preflight cache duration in seconds
+}));
+```
+
+#### Multiple Origins
+
+```typescript
+app.use(cors({
+  origin: ['https://app1.com', 'https://app2.com'],
+  credentials: true,
+}));
+```
+
+When `origin` is a string or array (not `"*"`), a `Vary: Origin` header is included automatically so caches distinguish responses per origin.
+
+#### Per-Group CORS
+
+Apply CORS to specific route groups instead of globally:
+
+```typescript
+app.group({ prefix: '/api', middleware: [cors()] }, (router) => {
+  router.get('/users', () => ({ users: [] }));
+});
+```
+
 ## Route Groups
 
 Group routes together with shared prefixes, middleware, and name prefixes.
@@ -484,12 +673,102 @@ app.get('/archive/:year?/:month?', (ctx) => {
 app.get('/posts/:id?', (ctx) => ({})).whereNumber('id');
 ```
 
-## Error Handling
+## Wildcard Routes
 
-Uncaught errors in handlers return a 500 response. By default the body includes the error message (via the built-in handler). **Security note:** Returning `error.message` in production can leak internal details (e.g. database errors, file paths) to clients. Use a custom `onError` handler in production that returns a generic message to the client while logging the full error server-side, or expose detailed messages only in a trusted debug mode.
+End a route path with `/*` or `/**` to create a catch-all route. The remaining path is captured as `ctx.params["*"]`.
 
 ```typescript
-// Default: 500 with error message. For production, prefer custom onError:
+// SPA fallback — serves index.html for any unmatched path
+app.get('/*', (ctx) => {
+  return new Response(Bun.file('public/index.html'));
+});
+
+// Static file serving (with path traversal protection)
+app.get('/assets/*', (ctx) => {
+  const filePath = ctx.params['*'];
+  if (!filePath) return new Response('Not Found', { status: 404 });
+
+  const resolved = Bun.resolveSync(`public/${filePath}`, process.cwd());
+  const root = Bun.resolveSync('public', process.cwd());
+  if (!resolved.startsWith(root)) {
+    return new Response('Forbidden', { status: 403 });
+  }
+  return new Response(Bun.file(resolved));
+});
+
+// GET /assets/css/style.css → ctx.params["*"] = "css/style.css"
+// GET /assets/js/app.js     → ctx.params["*"] = "js/app.js"
+// GET /assets               → ctx.params["*"] = undefined
+```
+
+`/*` and `/**` behave identically — `/**` is a visual convention to signal deep matching.
+
+### Wildcards with Named Parameters
+
+Combine named parameters and a trailing wildcard:
+
+```typescript
+app.get('/users/:id/*', (ctx) => {
+  const { id } = ctx.params;
+  const remaining = ctx.params['*'];
+  return { id, path: remaining };
+});
+
+// GET /users/42/docs/readme.md → { id: "42", path: "docs/readme.md" }
+```
+
+### Wildcards in Groups
+
+Wildcard routes compose with group prefixes and `basePath`:
+
+```typescript
+app.group('/api', (router) => {
+  router.get('/proxy/*', async (ctx) => {
+    const target = ctx.params['*'];
+    return fetch(`https://backend.example.com/${target}`);
+  });
+});
+
+// GET /api/proxy/v2/users → target = "v2/users"
+```
+
+### Route Priority
+
+Routes match in registration order (first match wins). Register specific routes before wildcard catch-alls:
+
+```typescript
+app.get('/assets/manifest.json', (ctx) => ({ type: 'manifest' }));
+app.get('/assets/*', (ctx) => {
+  return new Response(Bun.file(`public/${ctx.params['*']}`));
+});
+
+// GET /assets/manifest.json → hits the specific route
+// GET /assets/style.css     → hits the wildcard
+```
+
+### Wildcard URL Generation
+
+Named wildcard routes support URL generation via `app.route()`. Pass the `"*"` param for the remaining path:
+
+```typescript
+app.get('/assets/*', () => ({})).name('assets');
+
+app.route('assets', { '*': 'css/style.css' }); // → "/assets/css/style.css"
+app.route('assets');                            // → "/assets"
+```
+
+> **Note:** The wildcard must appear at the end of the path. A `*` in the middle of a path (e.g., `/*/foo`) throws an error.
+
+## Error Handling
+
+Uncaught errors in handlers return a 500 response. The default error handler is environment-aware:
+
+- **Production** (`NODE_ENV=production`): Returns a generic `"Internal Server Error"` message to avoid leaking sensitive details like database errors, file paths, or stack traces.
+- **Development/Test** (any other `NODE_ENV`): Returns the full `error.message` for easier debugging.
+
+For full control, use a custom `onError` handler:
+
+```typescript
 createApp({
   onError: (ctx, error) => {
     console.error('Request error:', error);
@@ -513,7 +792,8 @@ import type {
   GroupOptions,
   GroupRouter,
   GroupCallback,
-  RouteInfo
+  RouteInfo,
+  CorsOptions,
 } from '@bunary/http';
 ```
 
