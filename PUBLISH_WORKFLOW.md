@@ -4,7 +4,7 @@ Package docs live in each package repo under `docs/`. This repo consumes them. W
 
 When to sync: after you merge or release a package change that touched `docs/` or that users need documented. If you added a CLI command, you update `packages/cli/docs/index.md` in the cli repo; then someone runs the sync so `documentation/packages/cli.md` here is updated.
 
-How to sync: from this repo root run `bun run sync:packages`. The script fetches each package’s `docs/index.md` from GitHub (main) and writes `packages/*.md` here. No local package clones needed. Commit the changed `packages/*.md` and push.
+How to sync: from this repo root run `bun run sync:packages`. The script fetches each package’s doc files (`docs/index.md`, plus `quickstart.md`, `api.md`, `migration.md` when present) from GitHub (main), composes them, and writes `packages/*.md` here. No local package clones needed. Commit the changed `packages/*.md` and push.
 
 To preview package-doc changes before pushing, run `bun run scripts/sync-packages.ts --local` — it reads the local sibling checkouts instead of GitHub main. Do not commit locally-sourced output; the committed `packages/*.md` must come from the default remote sync.
 

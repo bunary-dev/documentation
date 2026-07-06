@@ -56,9 +56,9 @@ From this repo root:
 bun run sync:packages
 ```
 
-### MVP mapping (phase 1)
+### Mapping
 
-To start, we sync only `docs/index.md`:
+Each package's doc files are composed into a single output page:
 
 | Package repo | Source | Output (this repo) |
 |---|---|---|
