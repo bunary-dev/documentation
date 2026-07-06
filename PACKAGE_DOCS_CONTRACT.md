@@ -21,7 +21,7 @@ Each package repo MUST contain:
 
 - `docs/index.md`
 
-Each package repo SHOULD contain (recommended, but optional until the sync supports multi-file composition):
+Each package repo SHOULD contain (optional; automatically composed into the package page when present):
 
 - `docs/quickstart.md`
 - `docs/api.md`
