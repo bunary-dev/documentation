@@ -1,3 +1,8 @@
+---
+title: Authentication
+description: Securing your API with the Bunary authentication system.
+order: 1
+---
 
 # Authentication
 

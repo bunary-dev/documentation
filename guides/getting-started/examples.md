@@ -1,3 +1,9 @@
+---
+title: Examples
+description: Explore complete working examples to see Bunary in action.
+order: 4
+---
+
 # Examples
 
 Explore complete working examples to see Bunary in action. All examples are available in the [bunary-dev/examples](https://github.com/bunary-dev/examples) repository.

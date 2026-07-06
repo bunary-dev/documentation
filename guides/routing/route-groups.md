@@ -1,3 +1,9 @@
+---
+title: Route Groups
+description: Group routes together with shared prefixes, middleware, and name prefixes for better organization.
+order: 3
+---
+
 # Route Groups
 
 Group routes together with shared prefixes, middleware, and name prefixes for better organization.

@@ -1,3 +1,8 @@
+---
+title: Introduction
+description: Bunary is a Bun-first backend platform inspired by Laravel, focused on expressive developer experience, fast startup, and minimal operational overhead.
+order: 1
+---
 
 # Introduction
 

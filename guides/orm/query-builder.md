@@ -1,3 +1,9 @@
+---
+title: Query Builder
+description: The ORM provides a fluent query builder interface for building database queries.
+order: 3
+---
+
 # Query Builder
 
 The ORM provides a fluent query builder interface for building database queries.

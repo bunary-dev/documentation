@@ -1,3 +1,9 @@
+---
+title: Route Parameters
+description: Capture dynamic segments of the URL using route parameters.
+order: 2
+---
+
 # Route Parameters
 
 Capture dynamic segments of the URL using route parameters.

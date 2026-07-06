@@ -1,3 +1,9 @@
+---
+title: Named Routes
+description: Assign names to routes for URL generation, making it easy to generate URLs without hardcoding paths.
+order: 4
+---
+
 # Named Routes
 
 Assign names to routes for URL generation, making it easy to generate URLs without hardcoding paths.

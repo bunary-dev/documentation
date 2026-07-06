@@ -1,3 +1,9 @@
+---
+title: Guards
+description: Understanding and using authentication guards with app-scoped auth.
+order: 2
+---
+
 # Guards
 
 Understanding and using authentication guards with app-scoped auth.

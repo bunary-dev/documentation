@@ -1,3 +1,9 @@
+---
+title: Working with Models
+description: Create and configure model classes for your database tables.
+order: 2
+---
+
 # Working with Models
 
 Create and configure model classes for your database tables.
