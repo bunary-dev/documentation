@@ -2,69 +2,128 @@
 /**
  * Sync package docs from package repos into this repo's `packages/*.md`.
  *
- * Source-of-truth: each package repo `docs/index.md`
- * Output: this repo `packages/<pkg>.md`
+ * Source-of-truth: each package repo's `docs/` directory. Per package we compose
+ * (in order): index.md (mandatory), quickstart.md, api.md, migration.md (optional).
+ *
+ * Default mode fetches from GitHub main. `--local [root]` reads from local
+ * sibling checkouts instead (root defaults to ../packages) so doc changes can
+ * be previewed before pushing.
  *
  * @example
  * ```bash
  * bun run sync:packages
+ * bun run sync:packages --local
+ * bun run sync:packages --local /path/to/packages
  * ```
  */
 
-import { mkdir, writeFile } from "fs/promises";
-import { dirname, join } from "path";
+import { mkdir, readFile, writeFile } from "fs/promises";
+import { dirname, join, resolve } from "path";
+
+/** Contract phase-2 composition order. Only index.md is mandatory. */
+export const DOC_FILE_ORDER: ReadonlyArray<string> = Object.freeze([
+	"index.md",
+	"quickstart.md",
+	"api.md",
+	"migration.md",
+]);
 
 export type SyncTarget = Readonly<{
-	/**
-	 * GitHub repository name under `bunary-dev/` (e.g. `core`, `http`).
-	 */
+	/** GitHub repository name under `bunary-dev/` (e.g. `core`, `http`). */
 	repo: string;
-	/**
-	 * Output filename under `packages/` (e.g. `core.md`).
-	 */
+	/** Output filename under `packages/` (e.g. `core.md`). */
 	outputFileName: string;
-	/**
-	 * Raw URL to fetch markdown content from.
-	 */
-	sourceUrl: string;
 }>;
 
 /**
- * Deterministic list of package docs we sync (phase 1).
- *
- * Extending this list is the only change needed to sync another package's `docs/index.md`.
+ * Deterministic list of package docs we sync.
+ * Extending this list is the only change needed to sync another package.
  */
 export const SYNC_TARGETS: ReadonlyArray<SyncTarget> = Object.freeze([
-	{
-		repo: "core",
-		outputFileName: "core.md",
-		sourceUrl: "https://raw.githubusercontent.com/bunary-dev/core/main/docs/index.md",
-	},
-	{
-		repo: "http",
-		outputFileName: "http.md",
-		sourceUrl: "https://raw.githubusercontent.com/bunary-dev/http/main/docs/index.md",
-	},
-	{
-		repo: "auth",
-		outputFileName: "auth.md",
-		sourceUrl: "https://raw.githubusercontent.com/bunary-dev/auth/main/docs/index.md",
-	},
-	{
-		repo: "orm",
-		outputFileName: "orm.md",
-		sourceUrl: "https://raw.githubusercontent.com/bunary-dev/orm/main/docs/index.md",
-	},
-	{
-		repo: "cli",
-		outputFileName: "cli.md",
-		sourceUrl: "https://raw.githubusercontent.com/bunary-dev/cli/main/docs/index.md",
-	},
+	{ repo: "core", outputFileName: "core.md" },
+	{ repo: "http", outputFileName: "http.md" },
+	{ repo: "auth", outputFileName: "auth.md" },
+	{ repo: "orm", outputFileName: "orm.md" },
+	{ repo: "cli", outputFileName: "cli.md" },
 ]);
+
+/**
+ * Loads package doc files from some source (GitHub raw, local checkout, memory).
+ * `loadFile` resolves `null` when the file does not exist at the source.
+ */
+export type DocFileLoader = Readonly<{
+	describeSource: (repo: string, file: string) => string;
+	loadFile: (repo: string, file: string) => Promise<string | null>;
+}>;
+
+/**
+ * Loader that fetches from GitHub raw (main branch). 404 → null; other
+ * non-OK responses throw.
+ */
+export function createRemoteLoader(fetchImpl: typeof fetch = fetch): DocFileLoader {
+	const urlFor = (repo: string, file: string) =>
+		`https://raw.githubusercontent.com/bunary-dev/${repo}/main/docs/${file}`;
+	return {
+		describeSource: urlFor,
+		loadFile: async (repo, file) => {
+			const url = urlFor(repo, file);
+			const res = await fetchImpl(url);
+			if (res.status === 404) return null;
+			if (!res.ok) {
+				throw new Error(`Failed to fetch "${url}" (${res.status} ${res.statusText})`);
+			}
+			return await res.text();
+		},
+	};
+}
+
+/**
+ * Loader that reads from local package checkouts: `<root>/<repo>/docs/<file>`.
+ * Missing file (ENOENT) → null; other filesystem errors throw.
+ */
+export function createLocalLoader(
+	packagesRootDir: string,
+	readFileImpl: (path: string) => Promise<string> = (path) => readFile(path, "utf-8"),
+): DocFileLoader {
+	const pathFor = (repo: string, file: string) => join(packagesRootDir, repo, "docs", file);
+	return {
+		describeSource: pathFor,
+		loadFile: async (repo, file) => {
+			try {
+				return await readFileImpl(pathFor(repo, file));
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+				throw error;
+			}
+		},
+	};
+}
+
+/**
+ * Compose one package page from its doc files in DOC_FILE_ORDER.
+ * Returns null when the mandatory index.md is missing.
+ */
+export async function composePackageDocs(
+	repo: string,
+	loader: DocFileLoader,
+): Promise<{ sources: string[]; markdown: string } | null> {
+	const parts: string[] = [];
+	const sources: string[] = [];
+	for (const file of DOC_FILE_ORDER) {
+		const content = await loader.loadFile(repo, file);
+		if (content === null) {
+			if (file === "index.md") return null;
+			continue;
+		}
+		parts.push(normalizeNewlines(content).trim());
+		sources.push(loader.describeSource(repo, file));
+	}
+	return { sources, markdown: `${parts.join("\n\n")}\n` };
+}
 
 export type RenderSyncedPackageMarkdownArgs = Readonly<{
 	generatorCommand: string;
-	sourceUrl: string;
+	sources: ReadonlyArray<string>;
 	sourceMarkdown: string;
 }>;
 
@@ -78,7 +137,7 @@ export function renderSyncedPackageMarkdown(args: RenderSyncedPackageMarkdownArg
 		"<!--",
 		"  AUTO-GENERATED FILE — DO NOT EDIT DIRECTLY.",
 		`  Generated by: ${args.generatorCommand}`,
-		`  Source: ${args.sourceUrl}`,
+		...args.sources.map((source) => `  Source: ${source}`),
 		"-->",
 		"",
 	].join("\n");
@@ -91,58 +150,34 @@ function normalizeNewlines(input: string): string {
 }
 
 export type SyncPackagesOptions = Readonly<{
-	/**
-	 * Absolute repo root directory. Defaults to `process.cwd()`.
-	 */
+	/** Absolute repo root directory. Defaults to `process.cwd()`. */
 	repoRootDir?: string;
-	/**
-	 * Fetch a URL as text. Defaults to `fetch(url).text()`.
-	 */
-	fetchText?: (url: string) => Promise<string>;
-	/**
-	 * Write a file (absolute path). Defaults to `fs/promises.writeFile`.
-	 */
+	/** Doc file loader. Defaults to the remote (GitHub raw) loader. */
+	loader?: DocFileLoader;
+	/** Write a file (absolute path). Defaults to `fs/promises.writeFile`. */
 	writeFile?: (absolutePath: string, content: string) => Promise<void>;
-	/**
-	 * Ensure a directory exists (absolute path). If omitted, directories are created
-	 * only when using the default writer.
-	 */
+	/** Ensure a directory exists (absolute path). */
 	mkdirp?: (absoluteDir: string) => Promise<void>;
-	/**
-	 * Which targets to sync. Defaults to `SYNC_TARGETS`.
-	 */
+	/** Which targets to sync. Defaults to `SYNC_TARGETS`. */
 	targets?: ReadonlyArray<SyncTarget>;
 	/**
-	 * If true, throw on the first fetch/write error. If false, log and continue.
-	 * Defaults to false (CI drift-check can enforce strictness later).
+	 * If true, throw when a package's mandatory index.md is missing or a
+	 * source errors. If false, log and continue. Defaults to false.
 	 */
 	strict?: boolean;
 }>;
 
-/**
- * Sync all package docs into `packages/`.
- */
+/** Sync all package docs into `packages/`. */
 export async function syncPackages(options: SyncPackagesOptions = {}): Promise<void> {
 	const repoRootDir = options.repoRootDir ?? process.cwd();
 	const targets = options.targets ?? SYNC_TARGETS;
 	const strict = options.strict ?? false;
-
-	const fetchText =
-		options.fetchText ??
-		(async (url: string) => {
-			const res = await fetch(url);
-			if (!res.ok) {
-				throw new Error(`Failed to fetch "${url}" (${res.status} ${res.statusText})`);
-			}
-			return await res.text();
-		});
+	const loader = options.loader ?? createRemoteLoader();
 
 	const defaultMkdirp = async (absoluteDir: string) => {
 		await mkdir(absoluteDir, { recursive: true });
 	};
-
 	const mkdirp = options.mkdirp ?? (options.writeFile ? undefined : defaultMkdirp);
-
 	const writer =
 		options.writeFile ??
 		(async (absolutePath: string, content: string) => {
@@ -150,36 +185,49 @@ export async function syncPackages(options: SyncPackagesOptions = {}): Promise<v
 		});
 
 	for (const target of targets) {
-		let sourceMarkdown: string;
+		let composed: { sources: string[]; markdown: string } | null;
 		try {
-			sourceMarkdown = await fetchText(target.sourceUrl);
+			composed = await composePackageDocs(target.repo, loader);
 		} catch (error) {
 			if (strict) throw error;
 			console.warn(
-				`⚠️  Skipping "${target.repo}" (failed to fetch ${target.sourceUrl}): ${
+				`⚠️  Skipping "${target.repo}" (source error): ${
 					error instanceof Error ? error.message : String(error)
 				}`,
 			);
 			continue;
 		}
 
+		if (composed === null) {
+			const message = `Package "${target.repo}" is missing mandatory docs/index.md (${loader.describeSource(target.repo, "index.md")})`;
+			if (strict) throw new Error(message);
+			console.warn(`⚠️  Skipping "${target.repo}": ${message}`);
+			continue;
+		}
+
 		const outputMarkdown = renderSyncedPackageMarkdown({
 			generatorCommand: "bun run sync:packages",
-			sourceUrl: target.sourceUrl,
-			sourceMarkdown,
+			sources: composed.sources,
+			sourceMarkdown: composed.markdown,
 		});
 
 		const outputPath = join(repoRootDir, "packages", target.outputFileName);
-
 		if (mkdirp) {
 			await mkdirp(dirname(outputPath));
 		}
-
 		await writer(outputPath, outputMarkdown);
 	}
 }
 
-if (import.meta.main) {
-	await syncPackages();
+/** Parse CLI args: `--local [root]` selects the local loader. */
+export function loaderFromArgv(argv: ReadonlyArray<string>, cwd: string): DocFileLoader {
+	const localIndex = argv.indexOf("--local");
+	if (localIndex === -1) return createRemoteLoader();
+	const next = argv[localIndex + 1];
+	const root = next && !next.startsWith("--") ? next : join(cwd, "..", "packages");
+	return createLocalLoader(resolve(cwd, root));
 }
 
+if (import.meta.main) {
+	await syncPackages({ loader: loaderFromArgv(process.argv.slice(2), process.cwd()) });
+}
