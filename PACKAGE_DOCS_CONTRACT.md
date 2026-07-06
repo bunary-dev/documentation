@@ -21,7 +21,7 @@ Each package repo MUST contain:
 
 - `docs/index.md`
 
-Each package repo SHOULD contain (recommended, but optional until the sync supports multi-file composition):
+Each package repo SHOULD contain (optional; automatically composed into the package page when present):
 
 - `docs/quickstart.md`
 - `docs/api.md`
@@ -56,21 +56,21 @@ From this repo root:
 bun run sync:packages
 ```
 
-### MVP mapping (phase 1)
+### Mapping
 
-To start, we sync only `docs/index.md`:
+Each package's doc files are composed into a single output page:
 
 | Package repo | Source | Output (this repo) |
 |---|---|---|
-| `core` | `docs/index.md` | `packages/core.md` |
-| `http` | `docs/index.md` | `packages/http.md` |
-| `auth` | `docs/index.md` | `packages/auth.md` |
-| `orm` | `docs/index.md` | `packages/orm.md` |
-| `cli` | `docs/index.md` | `packages/cli.md` |
+| `core` | `docs/*.md composed` | `packages/core.md` |
+| `http` | `docs/*.md composed` | `packages/http.md` |
+| `auth` | `docs/*.md composed` | `packages/auth.md` |
+| `orm` | `docs/*.md composed` | `packages/orm.md` |
+| `cli` | `docs/*.md composed` | `packages/cli.md` |
 
-### Follow-up mapping (phase 2, optional)
+### Composition (phase 2 — implemented)
 
-Once we support composing multiple source files into a single package page, the sync should concatenate in this order when files exist:
+The sync now concatenates `index.md` + `quickstart.md` + `api.md` + `migration.md` when present; only `index.md` is mandatory. It composes in this order when files exist:
 
 1. `docs/index.md`
 2. `docs/quickstart.md`

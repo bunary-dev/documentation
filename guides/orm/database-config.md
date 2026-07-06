@@ -1,3 +1,9 @@
+---
+title: Database Configuration
+description: Configure your database connection for the ORM.
+order: 4
+---
+
 # Database Configuration
 
 Configure your database connection for the ORM.

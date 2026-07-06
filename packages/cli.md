@@ -43,7 +43,7 @@ bunary init my-app --auth jwt
 bunary init .
 ```
 
-The command creates `package.json`, `bunary.config.ts`, `src/index.ts`, and `src/routes/` (main, groupExample, index). If you used `--auth`, it also creates `src/middleware/basic.ts` or `jwt.ts` and wires it in the entrypoint. Next steps: `cd <name>`, `bun install`, `bun run dev`.
+The command creates `package.json`, `config/bunary.ts`, `src/index.ts`, and `src/routes/` (main, groupExample, index). If you used `--auth`, it also creates `src/middleware/basic.ts` or `jwt.ts` and wires it in the entrypoint. Next steps: `cd <name>`, `bun install`, `bun run dev`.
 
 ### bunary model:make \<table-name\>
 
@@ -71,7 +71,7 @@ What init and the generators produce.
 
 **package.json (default):** dependencies include `@bunary/core` and `@bunary/http`. With `--auth basic` or `--auth jwt`, `@bunary/auth` is added.
 
-**bunary.config.ts:** Uses `defineConfig` from `@bunary/core`. Sets app name, env, debug.
+**config/bunary.ts:** Uses `defineConfig` from `@bunary/core`. Sets app name, env, debug.
 
 **src/index.ts:** Creates the app with `createApp`, calls `registerRoutes(app)`, then `app.listen({ port: 3000 })`. With auth, it also imports the middleware and calls `app.use(basicMiddleware)` or `app.use(jwtMiddleware)`.
 
@@ -116,3 +116,64 @@ InitOptions: `{ auth?: "basic" | "jwt" }`. Pass to `init`, `generatePackageJson`
 ## Requirements
 
 - Bun ≥ 1.0.0
+
+## Custom Project Commands
+
+You can add your own CLI commands to any Bunary project. The CLI picks them up automatically when you run `bunary` from that project directory.
+
+### Where to put them
+
+Create a `src/commands/` directory and export one command per file:
+
+```
+my-app/
+  config/
+    bunary.ts          ← register commands here
+  src/
+    commands/
+      seed.ts          ← your custom command
+      deploy.ts
+    routes/
+    index.ts
+```
+
+### Defining a command
+
+Each command is a plain object with `name`, `description`, and an async `run` function:
+
+```typescript
+// src/commands/seed.ts
+export const seedDatabase = {
+  name: "db:seed",
+  description: "Seed the database with test data",
+  category: "project",
+  run: async () => {
+    console.log("Seeding...");
+    // your logic here
+  },
+};
+```
+
+### Registering commands in config
+
+Add a `commands` array to your config file. The CLI looks for `config/bunary.ts` first, then falls back to `bunary.config.ts`:
+
+```typescript
+// config/bunary.ts
+import { defineConfig } from "@bunary/core";
+import { seedDatabase } from "../src/commands/seed.js";
+import { deploy } from "../src/commands/deploy.js";
+
+export default defineConfig({
+  app: { name: "my-app" },
+  commands: [seedDatabase, deploy],
+});
+```
+
+Now `bunary db:seed` and `bunary deploy` work from your project root. They also show up under a "Project" section in `bunary --help`.
+
+### Rules
+
+- Project commands can't override built-in commands (`init`, `migrate`, etc.). The CLI throws if there's a name collision.
+- Commands missing `name`, `description`, or `run` are silently skipped.
+- If `category` is omitted it defaults to `"project"`.

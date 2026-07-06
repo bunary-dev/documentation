@@ -25,12 +25,13 @@ const DOCS_DIR = process.cwd();
 const OUTPUT_DIR =
 	process.env.DOCS_SITE_OUTPUT ?? join(DOCS_DIR, "..", "site", "src", "pages", "docs");
 
-interface DocMetadata {
+export interface DocMetadata {
 	title: string;
 	description: string;
+	order?: number;
 }
 
-function parseFrontmatter(content: string): { metadata: DocMetadata; body: string } {
+export function parseFrontmatter(content: string): { metadata: DocMetadata; body: string } {
 	const frontmatterRegex = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
 	const match = content.match(frontmatterRegex);
 
@@ -53,6 +54,10 @@ function parseFrontmatter(content: string): { metadata: DocMetadata; body: strin
 			const clean = value.replace(/^["']|["']$/g, "");
 			if (key === "title") metadata.title = clean;
 			if (key === "description") metadata.description = clean;
+			if (key === "order") {
+				const parsed = Number(clean);
+				if (Number.isFinite(parsed)) metadata.order = parsed;
+			}
 		}
 	}
 	return { metadata, body };
@@ -116,11 +121,12 @@ export default ${componentName};
 `;
 }
 
-interface ProcessedFile {
+export interface ProcessedFile {
 	componentName: string;
 	exportName: string;
 	filePath: string;
 	isPackage: boolean;
+	order?: number;
 }
 
 const processedFiles: ProcessedFile[] = [];
@@ -190,7 +196,7 @@ async function processMarkdownFile(filePath: string, relativePath: string): Prom
 
 	const component = await markdownToReactComponent(metadata, body, componentName);
 	await writeFile(outputPath, component, "utf-8");
-	processedFiles.push({ componentName, exportName, filePath: outputPath, isPackage });
+	processedFiles.push({ componentName, exportName, filePath: outputPath, isPackage, order: metadata.order });
 	console.log(`✓ Generated ${outputPath}`);
 }
 
@@ -207,12 +213,19 @@ async function processDirectory(dir: string, relativePath: string = ""): Promise
 	}
 }
 
-async function generateIndexFile(): Promise<void> {
-	const guides = processedFiles.filter((f) => !f.isPackage).sort((a, b) => a.componentName.localeCompare(b.componentName));
-	const packages = processedFiles.filter((f) => f.isPackage).sort((a, b) => a.componentName.localeCompare(b.componentName));
+function byOrderThenName(a: ProcessedFile, b: ProcessedFile): number {
+	const ao = a.order ?? Number.MAX_SAFE_INTEGER;
+	const bo = b.order ?? Number.MAX_SAFE_INTEGER;
+	if (ao !== bo) return ao - bo;
+	return a.componentName.localeCompare(b.componentName);
+}
+
+export function generateIndexContent(files: ProcessedFile[], outputDir: string): string {
+	const guides = files.filter((f) => !f.isPackage).sort(byOrderThenName);
+	const packages = files.filter((f) => f.isPackage).sort(byOrderThenName);
 	const exports: string[] = [];
 	for (const file of guides) {
-		const rel = relative(OUTPUT_DIR, file.filePath).replace(/\\/g, "/");
+		const rel = relative(outputDir, file.filePath).replace(/\\/g, "/");
 		const importPath = rel.replace(/\.tsx$/, ".js");
 		exports.push(`export { default as ${file.exportName} } from "./${importPath}";`);
 	}
@@ -222,7 +235,7 @@ async function generateIndexFile(): Promise<void> {
 			exports.push(`export { default as ${file.exportName} } from "./packages/${basename(file.filePath, ".tsx")}.js";`);
 		}
 	}
-	const indexContent = `/**
+	return `/**
  * Documentation pages - auto-generated. Do not edit directly.
  */
 
@@ -230,7 +243,10 @@ export { default as DocsLayout } from "./DocsLayout.js";
 
 ${exports.join("\n")}
 `;
-	await writeFile(join(OUTPUT_DIR, "index.ts"), indexContent, "utf-8");
+}
+
+async function generateIndexFile(): Promise<void> {
+	await writeFile(join(OUTPUT_DIR, "index.ts"), generateIndexContent(processedFiles, OUTPUT_DIR), "utf-8");
 	console.log("✓ Generated index.ts");
 }
 
@@ -265,7 +281,9 @@ async function build(): Promise<void> {
 	console.log(`\n✅ Site docs build complete! (${processedFiles.length} files)`);
 }
 
-build().catch((err) => {
-	console.error("❌ Build failed:", err);
-	process.exit(1);
-});
+if (import.meta.main) {
+	build().catch((err) => {
+		console.error("❌ Build failed:", err);
+		process.exit(1);
+	});
+}

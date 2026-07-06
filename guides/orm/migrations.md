@@ -1,3 +1,9 @@
+---
+title: Migrations
+description: Manage database schema changes with migration files and the Schema builder.
+order: 5
+---
+
 # Migrations
 
 Manage database schema changes with migration files and the Schema builder.

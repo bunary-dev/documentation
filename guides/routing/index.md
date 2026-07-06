@@ -1,3 +1,9 @@
+---
+title: Routing
+description: Define your application's routes and endpoints.
+order: 1
+---
+
 # Routing
 
 Define your application's routes and endpoints.

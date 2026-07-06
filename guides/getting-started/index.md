@@ -1,3 +1,8 @@
+---
+title: Installation
+description: Get Bunary up and running in your project.
+order: 1
+---
 
 # Installation
 

@@ -58,7 +58,7 @@ All build/sync scripts live in this repo and are run from the documentation repo
 
 | Command | What it does |
 |--------|----------------|
-| `bun run sync:packages` | Fetch package `docs/index.md` from GitHub and write `packages/*.md` in this repo. |
+| `bun run sync:packages` | Fetch package docs (index + quickstart + api + migration when present) from GitHub and write `packages/*.md`. Add `--local [root]` to read from local sibling checkouts for preview. |
 | `bun run sync:site` | Build guides + packages markdown into React components for the site. Cleans the site docs output dir, then generates. |
 | `bun run sync` | Run `sync:packages` then `sync:site` (full pipeline). |
 
@@ -76,6 +76,8 @@ This will update:
 - `packages/auth.md`
 - `packages/orm.md`
 - `packages/cli.md`
+
+To preview changes against local sibling package checkouts instead of GitHub, run `bun run scripts/sync-packages.ts --local` (bare `--local` defaults to `../packages` relative to the repo root).
 
 ### CI drift check
 
@@ -105,6 +107,7 @@ The script clears the output directory (except `DocsLayout.tsx`) before generati
 - Use standard Markdown syntax
 - Code blocks should specify language: ` ```typescript `
 - Use frontmatter for metadata (title, description, etc.)
+- Frontmatter keys read by `sync:site`: `title`, `description`, `order` (a number that drives export/sidebar ordering). Files without frontmatter keep heading-derived behavior.
 - Keep documentation focused and example-driven
 
 ### Package Documentation
