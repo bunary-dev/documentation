@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	composePackageDocs,
+	createLocalLoader,
 	createRemoteLoader,
 	DOC_FILE_ORDER,
+	loaderFromArgv,
 	renderSyncedPackageMarkdown,
 	SYNC_TARGETS,
 	syncPackages,
@@ -122,5 +124,46 @@ describe("documentation sync: composition", () => {
 		const fakeFetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
 		const loader = createRemoteLoader(fakeFetch);
 		expect(loader.loadFile("core", "index.md")).rejects.toThrow(/500/);
+	});
+});
+
+describe("documentation sync: local mode", () => {
+	test("createLocalLoader() reads <root>/<repo>/docs/<file> and nulls ENOENT", async () => {
+		const reads: string[] = [];
+		const loader = createLocalLoader("/ws/packages", async (path) => {
+			reads.push(path);
+			if (path === "/ws/packages/core/docs/index.md") return "# @bunary/core\n";
+			const err = new Error("not found") as NodeJS.ErrnoException;
+			err.code = "ENOENT";
+			throw err;
+		});
+		expect(await loader.loadFile("core", "index.md")).toBe("# @bunary/core\n");
+		expect(await loader.loadFile("core", "quickstart.md")).toBeNull();
+		expect(reads).toContain("/ws/packages/core/docs/quickstart.md");
+		expect(loader.describeSource("core", "index.md")).toBe("/ws/packages/core/docs/index.md");
+	});
+
+	test("createLocalLoader() rethrows non-ENOENT errors", async () => {
+		const loader = createLocalLoader("/ws/packages", async () => {
+			const err = new Error("permission denied") as NodeJS.ErrnoException;
+			err.code = "EACCES";
+			throw err;
+		});
+		expect(loader.loadFile("core", "index.md")).rejects.toThrow(/permission denied/);
+	});
+
+	test("loaderFromArgv() defaults to remote", () => {
+		const loader = loaderFromArgv([], "/docs-repo");
+		expect(loader.describeSource("core", "index.md")).toStartWith("https://raw.githubusercontent.com/");
+	});
+
+	test("loaderFromArgv() with bare --local uses ../packages relative to cwd", () => {
+		const loader = loaderFromArgv(["--local"], "/ws/documentation");
+		expect(loader.describeSource("core", "index.md")).toBe("/ws/packages/core/docs/index.md");
+	});
+
+	test("loaderFromArgv() with --local <root> uses the given root", () => {
+		const loader = loaderFromArgv(["--local", "/elsewhere/pkgs"], "/ws/documentation");
+		expect(loader.describeSource("core", "index.md")).toBe("/elsewhere/pkgs/core/docs/index.md");
 	});
 });
