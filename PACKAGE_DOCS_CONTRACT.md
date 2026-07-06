@@ -95,6 +95,6 @@ If README and `docs/index.md` both list "all commands" or the same examples, fix
 ## Ownership
 
 - `guides/**` is authored and maintained in this repo.
-- `packages/*.md` is synced output from package `docs/index.md`; do not hand-edit except when fixing sync bugs.
+- `packages/*.md` is synced output composed from each package's `docs/` files (`index.md`, plus `quickstart.md`, `api.md`, `migration.md` when present); do not hand-edit except when fixing sync bugs.
 - Canonical package docs content lives in each package repo under `docs/`.
 

@@ -10,6 +10,6 @@ To preview package-doc changes before pushing, run `bun run scripts/sync-package
 
 Who runs it: whoever is doing the release or the follow-up doc pass. There is no automated trigger yet. A practical rule: when you cut a package release or merge a feature that changed docs, run sync and open a PR in this repo with the updated `packages/*.md`, or add “run sync and commit” to the release checklist for that package.
 
-CI: PRs in this repo run a drift check. If `bun run sync:packages` would produce changes but the PR didn’t include them, CI fails. So if a package’s `docs/index.md` changed and you didn’t sync, the next person to touch this repo may hit that failure; then they run sync and commit the result.
+CI: PRs in this repo run a drift check. If `bun run sync:packages` would produce changes but the PR didn’t include them, CI fails. So if any of a package’s composed doc files (`docs/index.md`, `quickstart.md`, `api.md`, `migration.md`) changed and you didn’t sync, the next person to touch this repo may hit that failure; then they run sync and commit the result.
 
 Summary: change package docs in the package repo; run `bun run sync:packages` here and commit updated `packages/*.md` so Documentation stays in sync. No version bump in this repo for doc-only syncs.
