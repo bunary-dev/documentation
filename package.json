@@ -12,7 +12,7 @@
   },
   "devDependencies": {
     "@types/marked": "6.0.0",
-    "marked": "18.0.5"
+    "marked": "18.0.6"
   }
 }
 
