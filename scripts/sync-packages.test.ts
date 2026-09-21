@@ -125,6 +125,34 @@ describe("documentation sync: composition", () => {
 		const loader = createRemoteLoader(fakeFetch);
 		expect(loader.loadFile("core", "index.md")).rejects.toThrow(/500/);
 	});
+
+	test("composePackageDocs() normalizes CRLF and irregular whitespace deterministically", async () => {
+		const loader = memoryLoader({
+			"core/index.md": "# @bunary/core\r\n\r\nIntro line\r\n\r\n\r\n",
+			"core/quickstart.md": "\n\n## Quickstart\r\nSteps here\n\n\n",
+		});
+		const result = await composePackageDocs("core", loader);
+		expect(result).not.toBeNull();
+		const markdown = result!.markdown;
+		// CRLF collapsed to LF everywhere.
+		expect(markdown).not.toContain("\r");
+		// Parts joined by exactly one blank line despite ragged source edges.
+		expect(markdown).toBe("# @bunary/core\n\nIntro line\n\n## Quickstart\nSteps here\n");
+		// Same inputs → same output (deterministic).
+		const again = await composePackageDocs("core", loader);
+		expect(again!.markdown).toBe(markdown);
+	});
+
+	test("renderSyncedPackageMarkdown() normalizes CRLF sources to LF with single trailing newline", () => {
+		const out = renderSyncedPackageMarkdown({
+			generatorCommand: "bun run sync:packages",
+			sources: ["mem://core/docs/index.md"],
+			sourceMarkdown: "# @bunary/core\r\n\r\nBody\r\n\r\n",
+		});
+		expect(out).not.toContain("\r");
+		expect(out.endsWith("Body\n")).toBe(true);
+		expect(out.endsWith("Body\n\n")).toBe(false);
+	});
 });
 
 describe("documentation sync: local mode", () => {
