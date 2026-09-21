@@ -19,6 +19,9 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+
       - name: Run docs sync
         run: bun run sync:packages
 
