@@ -115,7 +115,7 @@ InitOptions: `{ auth?: "basic" | "jwt" }`. Pass to `init`, `generatePackageJson`
 
 ## Requirements
 
-- Bun ≥ 1.0.0
+- Bun ≥ 1.4.0
 
 ## Custom Project Commands
 
