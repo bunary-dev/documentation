@@ -127,6 +127,8 @@ export interface ProcessedFile {
 	filePath: string;
 	isPackage: boolean;
 	order?: number;
+	/** Commit date (YYYY-MM-DD) of the source markdown, when git knows it. */
+	lastUpdated?: string;
 }
 
 const processedFiles: ProcessedFile[] = [];
@@ -196,7 +198,14 @@ async function processMarkdownFile(filePath: string, relativePath: string): Prom
 
 	const component = await markdownToReactComponent(metadata, body, componentName);
 	await writeFile(outputPath, component, "utf-8");
-	processedFiles.push({ componentName, exportName, filePath: outputPath, isPackage, order: metadata.order });
+	processedFiles.push({
+		componentName,
+		exportName,
+		filePath: outputPath,
+		isPackage,
+		order: metadata.order,
+		lastUpdated: gitLastUpdated(filePath),
+	});
 	console.log(`✓ Generated ${outputPath}`);
 }
 
@@ -245,9 +254,38 @@ ${exports.join("\n")}
 `;
 }
 
+/** Last commit date (YYYY-MM-DD) touching `filePath`, or undefined if git has none. */
+export function gitLastUpdated(filePath: string): string | undefined {
+	const result = Bun.spawnSync(["git", "log", "-1", "--format=%cs", "--", basename(filePath)], {
+		cwd: dirname(filePath),
+		stdout: "pipe",
+		stderr: "ignore",
+	});
+	const date = result.stdout.toString().trim();
+	return result.exitCode === 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
+}
+
+/** last-updated.ts: generated page (relative path, no extension) -> source commit date. */
+export function generateLastUpdatedContent(files: ProcessedFile[], outputDir: string): string {
+	const entries = files
+		.filter((f) => f.lastUpdated)
+		.map((f) => [relative(outputDir, f.filePath).replace(/\\/g, "/").replace(/\.tsx$/, ""), f.lastUpdated] as const)
+		.sort(([a], [b]) => a.localeCompare(b));
+	return `/**
+ * Last-updated date of each docs page's source markdown - auto-generated. Do not edit directly.
+ */
+
+export const lastUpdated: Record<string, string> = {
+${entries.map(([page, date]) => `\t"${page}": "${date}",`).join("\n")}
+};
+`;
+}
+
 async function generateIndexFile(): Promise<void> {
 	await writeFile(join(OUTPUT_DIR, "index.ts"), generateIndexContent(processedFiles, OUTPUT_DIR), "utf-8");
 	console.log("✓ Generated index.ts");
+	await writeFile(join(OUTPUT_DIR, "last-updated.ts"), generateLastUpdatedContent(processedFiles, OUTPUT_DIR), "utf-8");
+	console.log("✓ Generated last-updated.ts");
 }
 
 /** Remove generated files so each run leaves only current output. Keeps DocsLayout.tsx. */

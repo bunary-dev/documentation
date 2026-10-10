@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { generateIndexContent, parseFrontmatter, type ProcessedFile } from "./sync-site";
+import { join } from "node:path";
+import {
+	generateIndexContent,
+	generateLastUpdatedContent,
+	gitLastUpdated,
+	parseFrontmatter,
+	type ProcessedFile,
+} from "./sync-site";
 
 describe("sync-site: frontmatter", () => {
 	test("parses title, description, and order", () => {
@@ -61,5 +68,39 @@ describe("sync-site: index generation", () => {
 		expect(content.indexOf("Guide")).toBeLessThan(content.indexOf("CorePackage"));
 		expect(content).toContain('from "./packages/Core.js"');
 		expect(content).toContain('export { default as DocsLayout } from "./DocsLayout.js";');
+	});
+});
+
+describe("sync-site: last-updated map", () => {
+	const file = (filePath: string, lastUpdated?: string): ProcessedFile => ({
+		componentName: "X",
+		exportName: "X",
+		filePath,
+		isPackage: false,
+		lastUpdated,
+	});
+
+	test("maps each page, relative to the output dir and without extension, to its date", () => {
+		const content = generateLastUpdatedContent(
+			[file("/out/routing/RouteGroups.tsx", "2026-07-06"), file("/out/Introduction.tsx", "2026-01-26")],
+			"/out",
+		);
+		expect(content).toContain('"Introduction": "2026-01-26",');
+		expect(content).toContain('"routing/RouteGroups": "2026-07-06",');
+		expect(content.indexOf("Introduction")).toBeLessThan(content.indexOf("routing/RouteGroups"));
+		expect(content).toContain("export const lastUpdated: Record<string, string> = {");
+	});
+
+	test("omits pages with no known date", () => {
+		const content = generateLastUpdatedContent([file("/out/Untracked.tsx")], "/out");
+		expect(content).not.toContain("Untracked");
+	});
+
+	test("gitLastUpdated returns the last commit date of a tracked file", () => {
+		expect(gitLastUpdated(join(import.meta.dir, "sync-site.ts"))).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+	});
+
+	test("gitLastUpdated returns undefined for a file git does not know", () => {
+		expect(gitLastUpdated(join(import.meta.dir, "does-not-exist.md"))).toBeUndefined();
 	});
 });
