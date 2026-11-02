@@ -22,7 +22,7 @@ There's no hidden behavior in Bunary. Every action is explicit and traceable. Yo
 
 ## Runtime Clarity Over Decorators
 
-While decorators can be elegant, they often obscure what's actually happening at runtime. Bunary prefers plain functions and explicit configuration that's easy to understand, test, and debug. Your IDE's "Go to Definition" should always lead somewhere meaningful.
+While decorators can be elegant, they often obscure what's actually happening at runtime. Bunary prefers plain functions, plain-object providers and explicit configuration that's easy to understand, test, and debug. Your IDE's "Go to Definition" should always lead somewhere meaningful.
 
 ## Developer Experience Before Ecosystem
 
@@ -31,6 +31,6 @@ We prioritize a delightful developer experience over building a massive plugin e
 ## What Bunary Is Not
 
 - **A full Laravel replacement** — we're inspired by Laravel, not cloning it
-- **A full ORM** — we focus on API primitives, not database abstraction
-- **A NestJS alternative** — we avoid decorators and DI containers
+- **A new query builder** — `@bunary/orm` adds Laravel-style models on top of Drizzle; tables, joins and migrations stay plain Drizzle
+- **A NestJS alternative** — no decorators or reflection-based injection; providers are plain objects and bindings are typed tokens on an instance-scoped app
 - **A hosting platform** — Bunary is a framework, deploy it anywhere

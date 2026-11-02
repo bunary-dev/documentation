@@ -1,178 +1,98 @@
 ---
 title: Migrations
-description: Manage database schema changes with migration files and the Schema builder.
+description: Manage database schema changes with drizzle-kit migrations generated from your Drizzle tables.
 order: 5
 ---
 
 # Migrations
 
-Manage database schema changes with migration files and the Schema builder.
+Manage database schema changes with drizzle-kit migrations generated from your Drizzle tables.
 
 ## Overview
 
-Migrations let you version your database schema: each migration file defines `up()` (apply changes) and `down()` (rollback). The ORM provides a **Schema** builder for creating and altering tables, and a **Migrator** (or the CLI) to run and rollback migrations in order.
+`@bunary/orm` has no migrator and no schema builder. Your Drizzle tables are the schema, and [drizzle-kit](https://orm.drizzle.team/docs/kit-overview) compares them with the database to write SQL migration files and apply them.
 
-**Requirements:** `@bunary/orm` in your project. For the CLI commands you also need `src/config/orm.ts` that calls `setOrmConfig` so the migrator can connect.
+```bash
+bun add @bunary/orm drizzle-orm
+bun add -d drizzle-kit
+```
 
-## CLI commands
+## Defining the schema
+
+Keep your tables in one module so drizzle-kit, your models and `ormProvider({ schema })` all read the same definitions:
+
+```typescript
+// src/db/schema.ts
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const users = sqliteTable("users", {
+  id: text().primaryKey().$defaultFn(() => Bun.randomUUIDv7()),
+  name: text().notNull(),
+  email: text().notNull().unique(),
+  active: integer({ mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});
+
+export const posts = sqliteTable("posts", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id),
+  title: text().notNull(),
+});
+```
+
+To change the schema later (add a column, rename a table), edit the tables and generate a new migration.
+
+## Configuring drizzle-kit
+
+```typescript
+// drizzle.config.ts
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "sqlite", // or "postgresql"
+  schema: "./src/db/schema.ts",
+  out: "./drizzle",
+  dbCredentials: { url: "./app.sqlite" }, // or process.env.DATABASE_URL
+});
+```
+
+## Commands
 
 | Command | Description |
 |--------|-------------|
-| `bunary migration:make <name>` | Create a new migration file in `./migrations/` |
-| `bunary migrate` | Run all pending migrations |
-| `bunary migrate:rollback` | Rollback the last migration batch |
-| `bunary migrate:status` | Show which migrations have run and which are pending |
+| `bunx drizzle-kit generate` | Write SQL migrations to `./drizzle` from changes to your tables |
+| `bunx drizzle-kit migrate` | Apply pending migrations |
+| `bunx drizzle-kit studio` | Browse the database |
 
-### Creating a migration
-
-```bash
-bunary migration:make create_users_table
-```
-
-This creates a file like `./migrations/20260129120000_create_users_table.ts` with stub `up()` and `down()` that use `Schema` from `@bunary/orm`. The name is used to derive a table name (e.g. `create_users_table` → `"users"`) in the stub.
-
-### Running migrations
+With `@bunary/orm` installed as a dependency, the Bunary CLI also lists `bunary db:generate`, `bunary db:migrate` and `bunary db:studio`: thin pass-throughs to the same drizzle-kit commands.
 
 ```bash
-bunary migrate
+bunary db:generate
+bunary db:migrate
 ```
 
-On first use, the CLI creates `scripts/migrate.ts` in your project. Ensure `src/config/orm.ts` calls `setOrmConfig` with your database config so the migrator can connect.
+## Running migrations at startup
 
-### Rollback and status
-
-```bash
-bunary migrate:rollback   # Rollback last batch
-bunary migrate:status      # List ran and pending migrations
-```
-
-## Migration file format
-
-Each migration file must export `up()` and `down()` (async or sync). Use the Schema builder for DDL:
+To apply migrations from code, use Drizzle's migrator:
 
 ```typescript
-// migrations/20260129120000_create_users_table.ts
-import { Schema } from "@bunary/orm";
+import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 
-export async function up() {
-  Schema.createTable("users", (table) => {
-    table.uuid("id").primary();
-    table.string("name", 255).notNull();
-    table.string("email", 255).unique().notNull();
-    table.boolean("active").default(true);
-    table.timestamps();
-  });
-}
+const db = drizzle({ client: new Database("app.sqlite") });
 
-export async function down() {
-  Schema.dropTable("users");
-}
+migrate(db, { migrationsFolder: "./drizzle" });
+
+// Postgres: import from "drizzle-orm/bun-sql/migrator" and `await migrate(...)`
 ```
 
-Drop in reverse order of create (e.g. drop dependent tables first):
+With `ormProvider`, run it against the database bound under `DatabaseToken` after `app.boot()`; see [Database Configuration](./database-config.md).
 
-```typescript
-export async function down() {
-  Schema.dropTable("posts");
-  Schema.dropTable("users");
-}
-```
+## Upgrading from the old migrator
 
-## Schema builder
-
-Use `Schema` inside migrations (after ORM config is set) to create, alter, and drop tables.
-
-### Create and drop tables
-
-```typescript
-import { Schema } from "@bunary/orm";
-
-// Create a table
-Schema.createTable("users", (table) => {
-  table.increments("id");                    // Integer primary key, auto-increment
-  table.string("name", 255).notNull();
-  table.string("email", 255).unique().notNull();
-  table.boolean("active").default(true);
-  table.timestamp("deleted_at").nullable();
-  table.timestamps();                        // createdAt, updatedAt
-});
-
-// Or UUID primary key
-Schema.createTable("posts", (table) => {
-  table.uuid("id").primary();
-  table.foreignId("user_id").references("users", "id");
-  table.text("title").notNull();
-  table.timestamps();
-});
-
-// Drop a table
-Schema.dropTable("users");
-```
-
-### Alter tables and helpers
-
-```typescript
-// Add columns to an existing table
-Schema.table("users", (table) => {
-  table.string("phone", 20).nullable();
-});
-
-// Check before changing
-if (!Schema.hasTable("users")) {
-  Schema.createTable("users", (table) => { /* ... */ });
-}
-if (!Schema.hasColumn("users", "email")) {
-  Schema.table("users", (table) => {
-    table.string("email", 255);
-  });
-}
-
-// Rename a table
-Schema.renameTable("users", "accounts");
-```
-
-**Schema methods:** `createTable(name, callback)`, `dropTable(name)`, `table(name, callback)` (alter), `hasTable(name)`, `hasColumn(table, column)`, `renameTable(oldName, newName)`.
-
-**Column types:** `increments("id")`, `integer("col")`, `text("col")`, `string("col", length?)`, `boolean("col")`, `timestamp("col")`, `uuid("id"?)`, `foreignId("col")`, `timestamps()`.
-
-**Modifiers:** `.nullable()`, `.notNull()`, `.default(value)`, `.unique()`, `.primary()`, and `foreignId("col").references("table", "column")`.
-
-## Programmatic API
-
-Run migrations from code with `createMigrator`:
-
-```typescript
-import { createMigrator, setOrmConfig } from "@bunary/orm";
-
-setOrmConfig({
-  database: {
-    type: "sqlite",
-    sqlite: { path: "./database.sqlite" },
-  },
-});
-
-const migrator = createMigrator({ migrationsPath: "./migrations" });
-
-// Status: ran vs pending
-const status = await migrator.status();
-console.log("Ran:", status.ran);
-console.log("Pending:", status.pending);
-
-// Run all pending migrations (uses transactions; rollback on failure)
-await migrator.up();
-
-// Rollback last batch (default) or multiple batches
-await migrator.down();
-await migrator.down({ steps: 2 });
-```
-
-**API:** `createMigrator({ migrationsPath?, tableName? })`, `migrator.status()`, `migrator.up()`, `migrator.down({ steps?: number })`.
-
-## Configuration
-
-The migrator needs the ORM to be configured before running. In a Bunary project:
-
-1. **`src/config/orm.ts`** — Call `setOrmConfig` with your database config (same as in [Database config](./database-config.md)).
-2. **`scripts/migrate.ts`** — Created by `bunary migrate` on first use; it imports your config and runs the migrator. You can customize it to change the migrations path or use `enableCoreConfig()`.
-
-Without `src/config/orm.ts` (and the config being loaded before the migrator runs), `bunary migrate` will fail with a configuration error.
+The pre-0.4 `Schema` builder, migration files with `up()` / `down()`, the `migrate` CLI commands and the programmatic migrator are gone, with no compatibility shims. Recreate your tables as Drizzle tables and let drizzle-kit generate the migrations. See the upgrade table in the [`@bunary/orm` package reference](/docs/packages/orm).

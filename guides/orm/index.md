@@ -10,54 +10,63 @@ Working with databases using Bunary's ORM.
 
 ## Overview
 
-Bunary's ORM provides an Eloquent-like interface for working with databases. It features a database abstraction layer that supports multiple database types through a unified API, plus a **Schema** builder and **migrations** for versioning your database schema.
+`@bunary/orm` gives you Laravel-style models built on [Drizzle](https://orm.drizzle.team). You describe your tables with Drizzle, and `defineModel(db, table)` wraps a table in a model with `find` / `create` / `save` / `delete`, dirty tracking, model events, hidden columns, soft deletes, named scopes and eager loading. Anything the model API does not cover (joins, aggregates, migrations) is plain Drizzle.
+
+SQLite (`bun:sqlite`) and Postgres (`Bun.SQL`) are supported.
+
+## Installation
+
+`drizzle-orm` is a peer dependency, and `drizzle-kit` handles migrations:
+
+```bash
+bun add @bunary/orm drizzle-orm
+bun add -d drizzle-kit
+```
 
 ## Quick Start
 
 ```typescript
-import { Model, setOrmConfig } from "@bunary/orm";
+import { Database } from "bun:sqlite";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { defineModel } from "@bunary/orm";
 
-// Configure the ORM
-setOrmConfig({
-  database: {
-    type: "sqlite",
-    sqlite: {
-      path: "./database.sqlite"
-    }
-  }
+// A Drizzle table
+export const users = sqliteTable("users", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  name: text().notNull(),
+  email: text().notNull().unique(),
 });
 
-// Query using the Model API
-const user = await Model.table("users").find(1);
-const allUsers = await Model.table("users").all();
+// A Drizzle database
+const db = drizzle({ client: new Database("app.sqlite") });
+
+// A model
+export const User = defineModel(db, users);
+
+const user = await User.create({ name: "Ada", email: "ada@example.com" });
+if (!user) throw new Error("cancelled by a listener");
+
+user.name = "Ada Lovelace";
+await user.save(); // writes only the dirty "name" column
+
+const found = await User.where(eq(users.email, "ada@example.com")).first();
+const byId = await User.find(1);
 ```
 
-## Using BaseModel
+## Using the ORM in a Bunary app
 
-Create model classes that extend `BaseModel` for an Eloquent-like experience:
-
-```typescript
-import { BaseModel } from "@bunary/orm";
-
-class User extends BaseModel {
-  protected static tableName = "users";
-  protected static protected = ["password"];
-  protected static timestamps = ["createdAt", "updatedAt"];
-}
-
-// Use the model
-const user = await User.find(1);
-const users = await User.all();
-const activeUsers = await User.where("status", "=", "active").all();
-```
+With `@bunary/core`, `ormProvider` builds the Drizzle database from the `database` key of your config and binds it under `DatabaseToken`. Handlers mounted with `httpProvider` from `@bunary/http/provider` can then use your models. See [Database Configuration](./database-config.md) for the full setup.
 
 ## Migrations
 
-Version your database schema with migration files and the Schema builder. Use the CLI to create and run migrations:
+There is no Bunary migrator: schema changes are your Drizzle tables plus [drizzle-kit](https://orm.drizzle.team/docs/kit-overview). Generate SQL migrations with `bunx drizzle-kit generate` and apply them with `bunx drizzle-kit migrate`. See [Migrations](./migrations.md).
 
-- **`bunary migration:make <name>`** — Create a migration in `./migrations/`
-- **`bunary migrate`** — Run pending migrations (creates `scripts/migrate.ts` on first use)
-- **`bunary migrate:rollback`** — Rollback last batch
-- **`bunary migrate:status`** — Show ran vs pending
+## Next steps
 
-Your project needs `src/config/orm.ts` that calls `setOrmConfig` so the migrator can connect. See [Migrations](./migrations.md) for the Schema builder, migration file format, and programmatic API.
+- [Working with Models](./models.md): defining models, hidden columns, soft deletes, events
+- [Query Builder](./query-builder.md): `where()`, scopes, eager loading and raw Drizzle queries
+- [Database Configuration](./database-config.md): SQLite, Postgres and `ormProvider`
+- [Migrations](./migrations.md): drizzle-kit
+- The [`@bunary/orm` package reference](/docs/packages/orm)

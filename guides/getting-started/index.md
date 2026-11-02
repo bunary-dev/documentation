@@ -12,7 +12,7 @@ Get Bunary up and running in your project.
 
 Before installing Bunary, ensure you have the following prerequisites:
 
-- **Bun** v1.0 or later — [Install Bun](https://bun.sh)
+- **Bun** v1.4.0 or later — [Install Bun](https://bun.sh)
 - **TypeScript** 5.0+ (included with Bun)
 
 > **Note:** Bunary is designed specifically for the Bun runtime and will not work with Node.js.
@@ -38,13 +38,16 @@ bun install
 bun run dev
 ```
 
+Run `bunary init` without a name in a terminal and it asks for the project name and auth scaffolding interactively.
+
 This will create a new directory with a Bunary project scaffold including:
 
-- **package.json** — `@bunary/core`, `@bunary/http`; add `--auth basic` or `--auth jwt` to include `@bunary/auth`
-- **bunary.config.ts** — uses `defineConfig` from `@bunary/core`
-- **src/index.ts** — entry point; imports and calls `registerRoutes` from `src/routes`, then `app.listen({ port: 3000 })`
-- **src/routes/** — main, groupExample, index; `src/routes/index.ts` defines and exports `registerRoutes`. Add more with `bunary route:make <name>`
-- **With --auth** — `src/middleware/basic.ts` or `jwt.ts` wired in the entrypoint
+- **package.json** — `@bunary/core` and `@bunary/http`; add `--auth basic` or `--auth jwt` to include `@bunary/auth`
+- **tsconfig.json** — strict settings, so `bunx tsc --noEmit` typechecks the project
+- **config/bunary.ts** — uses `defineConfig` from `@bunary/core`; sets the app name, env, debug and `http.port`
+- **src/index.ts** — entry point; builds a router with `createRouter`, calls `registerRoutes`, mounts the router on a core app with `httpProvider` and starts it with `serve(app)`
+- **src/routes/** — main, groupExample, index; `src/routes/index.ts` defines and exports `registerRoutes`. Add more with `bunary make:route <name>`
+- **With --auth** — `src/middleware/basic.ts` or `jwt.ts`, registered with `router.use(...)` in the entrypoint
 
 ## Manual Installation
 
@@ -52,37 +55,29 @@ If you prefer to set up Bunary manually or add it to an existing project:
 
 ### 1. Install Packages
 
-**Option A — Umbrella package (all-in-one):**
-```bash
-bun add bunary
-```
-Then import from `bunary` or `bunary/http`, `bunary/core`, etc.
-
-**Option B — Individual packages:**
 ```bash
 bun add @bunary/core @bunary/http
 ```
 
-The steps below use `@bunary/core` and `@bunary/http` imports. If you installed the umbrella package, use `bunary/core` and `bunary/http` (or `bunary` for the main exports) instead.
+`@bunary/http` also works on its own; `@bunary/core` is needed to mount the router on an application.
 
 ### 2. Create Configuration File
 
-Create a `bunary.config.ts` in your project root:
+Create `config/bunary.ts`:
 
 ```typescript
-import { createConfig, defineConfig } from "@bunary/core";
+import { defineConfig } from "@bunary/core";
 
-export const configStore = createConfig(
-  defineConfig({
-    app: {
-      name: "My API",
-      env: "development",
-      debug: true,
-    },
-  }),
-);
-
-export default configStore.get();
+export default defineConfig({
+  app: {
+    name: "My API",
+    env: "development",
+    debug: true,
+  },
+  http: {
+    port: 3000,
+  },
+});
 ```
 
 ### 3. Create Entry Point
@@ -90,21 +85,41 @@ export default configStore.get();
 Create your application entry point at `src/index.ts`:
 
 ```typescript
-import { createApp } from "@bunary/http";
+import { createApp } from "@bunary/core";
+import { createRouter } from "@bunary/http";
+import { httpProvider, serve } from "@bunary/http/provider";
+import config from "../config/bunary.js";
 
-const app = createApp();
+const router = createRouter();
 
-app.get("/", () => ({
+router.get("/", () => ({
   message: "Hello, Bunary!",
 }));
 
-app.get("/health", () => ({
+router.get("/health", () => ({
   status: "ok",
   timestamp: new Date().toISOString(),
 }));
 
-const server = app.listen({ port: 3000 });
+const app = await createApp({
+  config,
+  providers: [httpProvider(router)],
+}).boot();
+
+// Port and hostname come from the `http` key in config/bunary.ts.
+const server = serve(app);
 console.log(`🚀 Server running at http://localhost:${server.port}`);
+```
+
+Without `@bunary/core`, a router can start its own server:
+
+```typescript
+import { createRouter } from "@bunary/http";
+
+const router = createRouter();
+router.get("/", () => ({ message: "Hello, Bunary!" }));
+
+router.listen({ port: 3000 });
 ```
 
 ### 4. Run Your App
@@ -122,8 +137,10 @@ Add additional packages as needed:
 bun add @bunary/auth
 
 # CLI for development tools
-bun add -D @bunary/cli
+bun add -d @bunary/cli
 
-# ORM for database operations
+# ORM (built on Drizzle) for database operations
 bun add @bunary/orm
 ```
+
+`@bunary/orm` needs `drizzle-orm` next to it, and `drizzle-kit` for migrations; see the [ORM package docs](/docs/packages/orm).
