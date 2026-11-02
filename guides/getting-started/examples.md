@@ -24,10 +24,11 @@ cd examples
 A simple REST API demonstrating core Bunary features.
 
 **Features covered:**
-- Route definition with `createApp()`
+- Route definition with `createRouter()`
 - Path parameters (`:id` syntax)
 - Query parameters
-- JSON serialization
+- JSON serialization and response helpers
+- Mounting the router on a core app with `serve(app)`
 - Middleware pipeline
 - Environment helpers
 
@@ -63,14 +64,15 @@ bun run dev
 
 ### Basic ORM
 
-Database integration example using Bunary ORM with SQLite.
+Database integration example using Bunary ORM (built on Drizzle) with SQLite.
 
 **Features covered:**
-- Database configuration
-- Model definitions
-- Query builder usage
-- CRUD operations
-- Relationships
+- Database configuration (the `database` config key and `ormProvider`)
+- Migrations with drizzle-kit
+- Drizzle tables and models with `defineModel(db, table)`
+- Queries with `find`, `findOrFail`, `where(...).get()` and raw Drizzle via `query()`
+- CRUD operations, dirty tracking, scopes and soft deletes
+- Eager loading of Drizzle relations with `with()`
 
 ```bash
 cd basic-orm

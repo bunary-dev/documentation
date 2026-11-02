@@ -45,20 +45,16 @@ cd my-api && bun install && bun run dev
 
 ## Packages
 
-Bunary offers two installation options:
+Bunary is a set of packages under the `@bunary` npm scope. Install only what you need, for example:
 
-**Umbrella package** — Install everything in one step:
 ```bash
-bun add bunary
+bun add @bunary/http
 ```
-Use `import { createApp, env } from "bunary"` or subpaths: `bunary/core`, `bunary/http`, `bunary/auth`.
-
-**Individual packages** — Install only what you need under the `@bunary` npm scope:
 
 | Package | Description |
 |---------|-------------|
-| `@bunary/core` | Configuration, environment, and app foundation |
-| `@bunary/http` | HTTP layer with routing and middleware |
-| `@bunary/auth` | Authentication manager with guard abstraction |
+| `@bunary/core` | Instance-scoped application, configuration, environment helpers and providers |
+| `@bunary/http` | Router with middleware, route groups, named routes and response helpers |
+| `@bunary/auth` | Guard-based authentication (session, JWT, Basic) with middleware that sets `ctx.locals.auth` |
 | `@bunary/cli` | CLI for project scaffolding and generators |
-| `@bunary/orm` | ORM with database abstraction layer |
+| `@bunary/orm` | Laravel-style models built on Drizzle |

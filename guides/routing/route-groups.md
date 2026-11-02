@@ -8,15 +8,23 @@ order: 3
 
 Group routes together with shared prefixes, middleware, and name prefixes for better organization.
 
+The examples below assume a router created with `createRouter()` from `@bunary/http`:
+
+```typescript
+import { createRouter } from "@bunary/http";
+
+const router = createRouter();
+```
+
 ## Basic Groups
 
 Group routes with a shared prefix:
 
 ```typescript
 // Simple prefix
-app.group("/api", (router) => {
-  router.get("/users", () => ({ users: [] }));     // /api/users
-  router.get("/posts", () => ({ posts: [] }));     // /api/posts
+router.group("/api", (api) => {
+  api.get("/users", () => ({ users: [] }));     // /api/users
+  api.get("/posts", () => ({ posts: [] }));     // /api/posts
 });
 ```
 
@@ -25,14 +33,21 @@ app.group("/api", (router) => {
 Apply middleware and name prefixes to groups:
 
 ```typescript
+// Middleware receives the context and a next() function
+const authMiddleware = async (ctx, next) => {
+  const token = ctx.request.headers.get("Authorization");
+  if (!token) return ctx.json({ error: "Unauthorized" }, { status: 401 });
+  return await next();
+};
+
 // With options (prefix, middleware, name prefix)
-app.group({
+router.group({
   prefix: "/admin",
   middleware: [authMiddleware],
   name: "admin."
-}, (router) => {
-  router.get("/dashboard", () => ({})).name("dashboard");  // name: admin.dashboard
-  router.get("/users", () => ({})).name("users");          // name: admin.users
+}, (admin) => {
+  admin.get("/dashboard", () => ({})).name("dashboard");  // name: admin.dashboard
+  admin.get("/users", () => ({})).name("users");          // name: admin.users
 });
 ```
 
@@ -42,7 +57,7 @@ Create nested route groups for complex route hierarchies:
 
 ```typescript
 // Nested groups
-app.group("/api", (api) => {
+router.group("/api", (api) => {
   api.group("/v1", (v1) => {
     v1.get("/users", () => ({}));  // /api/v1/users
   });

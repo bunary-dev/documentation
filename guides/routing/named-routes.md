@@ -8,14 +8,22 @@ order: 4
 
 Assign names to routes for URL generation, making it easy to generate URLs without hardcoding paths.
 
+The examples below assume a router created with `createRouter()` from `@bunary/http`:
+
+```typescript
+import { createRouter } from "@bunary/http";
+
+const router = createRouter();
+```
+
 ## Naming Routes
 
 Assign names to routes:
 
 ```typescript
 // Name a route
-app.get("/users/:id", (ctx) => ({})).name("users.show");
-app.get("/posts/:slug", (ctx) => ({})).name("posts.show");
+router.get("/users/:id", (ctx) => ({})).name("users.show");
+router.get("/posts/:slug", (ctx) => ({})).name("posts.show");
 ```
 
 ## Generating URLs
@@ -24,11 +32,11 @@ Generate URLs from route names:
 
 ```typescript
 // Generate URLs
-const url = app.route("users.show", { id: 42 });
+const url = router.route("users.show", { id: 42 });
 // "/users/42"
 
 // Extra params become query string
-const searchUrl = app.route("users.show", { id: 42, tab: "profile" });
+const searchUrl = router.route("users.show", { id: 42, tab: "profile" });
 // "/users/42?tab=profile"
 ```
 
@@ -38,11 +46,11 @@ Check if routes exist and list all routes:
 
 ```typescript
 // Check if route exists
-if (app.hasRoute("users.show")) {
+if (router.hasRoute("users.show")) {
   // ...
 }
 
 // List all routes
-const routes = app.getRoutes();
+const routes = router.getRoutes();
 // [{ name: "users.show", method: "GET", path: "/users/:id" }, ...]
 ```

@@ -12,25 +12,36 @@ Understanding the default Bunary project layout.
 
 When you create a new Bunary project using `bunary init`, you'll get the following directory structure:
 
-```
+```text
 my-api/
+├── config/
+│   └── bunary.ts         # Bunary configuration (defineConfig from @bunary/core)
 ├── src/
-│   ├── index.ts          # Application entry point (calls registerRoutes, app.listen)
+│   ├── index.ts          # Entry point: createRouter, registerRoutes, httpProvider, serve(app)
 │   └── routes/
 │       ├── index.ts      # Defines and exports registerRoutes (called from src/index.ts)
 │       ├── main.ts       # Registers / and /health
-│       └── groupExample.ts  # Example route group (e.g. /api, /api/health)
-├── bunary.config.ts      # Bunary configuration (defineConfig from @bunary/core)
-└── package.json
+│       └── groupExample.ts  # Example route group (/api/health, /api/users/:id)
+├── package.json
+└── tsconfig.json
 ```
 
-Optional (add as needed): `tests/`, `tsconfig.json`, `.env`, `.env.example` — not created by `bunary init`; see Directory Overview below.
+Optional (add as needed): `tests/`, `.env`, `.env.example` — not created by `bunary init`; see Directory Overview below.
 
 With `bunary init my-api --auth basic` or `--auth jwt`, you also get:
 
-- `src/middleware/basic.ts` or `jwt.ts` (auth stub), wired in `src/index.ts`
+- `src/middleware/basic.ts` or `jwt.ts` (auth middleware built with `createAuth` from `@bunary/auth`), registered with `router.use(...)` in `src/index.ts`
 
-Add more routes with `bunary route:make <name>`, middleware with `bunary middleware:make <name>`, and models with `bunary model:make <table-name>`.
+Add more with the generators:
+
+```bash
+bunary make:route users         # src/routes/users.ts
+bunary make:middleware logger   # src/middleware/logger.ts
+bunary make:command seed        # src/commands/seed.ts
+bunary make:provider cache      # src/providers/cache.ts
+```
+
+With `@bunary/orm` installed, the CLI also offers `make:model` and the `db:generate`, `db:migrate` and `db:studio` commands (pass-throughs to drizzle-kit). See the [CLI package docs](/docs/packages/cli).
 
 ## Directory Overview
 
@@ -41,57 +52,63 @@ The `src` directory contains your application source code. This is where you'll 
 | Directory | Purpose |
 |-----------|---------|
 | `src/index.ts` | Application entry point and server bootstrap |
-| `src/routes/` | Route definitions and API endpoints |
-| `src/middleware/` | Custom middleware functions |
+| `src/routes/` | Route modules (`make:route`), each exporting a register function that takes the `Router` |
+| `src/middleware/` | Middleware functions (`make:middleware`) |
+| `src/commands/` | Project CLI commands (`make:command`), registered in `config/bunary.ts` |
+| `src/providers/` | Service providers (`make:provider`), added to `createApp({ providers: [...] })` |
 | `src/handlers/` | Request handlers (optional) |
 | `src/services/` | Business logic and services (optional) |
 
 ### The tests Directory
 
-The `tests` directory (optional; not created by `bunary init`) contains your test files. Bunary uses Bun's built-in test runner, so you can run tests with `bun test`.
+The `tests` directory (optional; not created by `bunary init`) contains your test files. Bunary uses Bun's built-in test runner, so you can run tests with `bun test`. `router.fetch(request)` runs a request through your routes without starting a server.
 
 ### Configuration Files
 
 | File | Purpose |
 |------|---------|
-| `bunary.config.ts` | Bunary application configuration |
+| `config/bunary.ts` | Bunary application configuration and project commands |
 | `package.json` | Dependencies and scripts |
-| `tsconfig.json` | TypeScript configuration (optional; add if needed) |
+| `tsconfig.json` | TypeScript configuration |
 | `.env` | Environment variables (optional; git-ignored) |
 | `.env.example` | Example environment variables template (optional; add as needed) |
 
 ## Larger Projects
 
-As your project grows, you might adopt a more structured layout:
+As your project grows, you might adopt a more structured layout. With `@bunary/orm`, Drizzle tables live in a schema file and drizzle-kit writes migrations next to `drizzle.config.ts`:
 
-```
+```text
 my-api/
+├── config/
+│   └── bunary.ts
 ├── src/
 │   ├── index.ts
-│   ├── app.ts              # App instance creation
+│   ├── app.ts              # createApp with providers
 │   ├── routes/
 │   │   ├── index.ts        # Route aggregation
 │   │   ├── users.ts
 │   │   └── posts.ts
 │   ├── middleware/
 │   │   ├── auth.ts
-│   │   ├── cors.ts
 │   │   └── logger.ts
-│   ├── handlers/
-│   │   ├── users.ts
-│   │   └── posts.ts
+│   ├── providers/
+│   │   └── cache.ts
+│   ├── commands/
+│   │   └── seed.ts
+│   ├── db/
+│   │   └── schema.ts       # Drizzle tables and relations
+│   ├── models/
+│   │   └── user.ts         # defineModel(db, users)
 │   ├── services/
 │   │   ├── user.service.ts
 │   │   └── post.service.ts
-│   ├── types/
-│   │   └── index.ts
-│   └── utils/
-│       └── helpers.ts
+│   └── types/
+│       └── index.ts
+├── drizzle/                # SQL migrations generated by drizzle-kit
+├── drizzle.config.ts
 ├── tests/
 │   ├── routes/
-│   ├── services/
-│   └── setup.ts
-├── bunary.config.ts
+│   └── services/
 ├── package.json
 └── tsconfig.json
 ```
