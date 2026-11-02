@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	composePackageDocs,
 	createLocalLoader,
+	createReleaseLoader,
 	createRemoteLoader,
 	DOC_FILE_ORDER,
 	loaderFromArgv,
@@ -180,9 +181,36 @@ describe("documentation sync: local mode", () => {
 		expect(loader.loadFile("core", "index.md")).rejects.toThrow(/permission denied/);
 	});
 
-	test("loaderFromArgv() defaults to remote", () => {
-		const loader = loaderFromArgv([], "/docs-repo");
-		expect(loader.describeSource("core", "index.md")).toStartWith("https://raw.githubusercontent.com/");
+	test("loaderFromArgv() defaults to the published release loader", async () => {
+		const fakeFetch = (async (url: string | URL | Request) => {
+			const u = String(url);
+			if (u.startsWith("https://registry.npmjs.org/")) return Response.json({ version: "0.4.0" });
+			return new Response("# core", { status: 200 });
+		}) as typeof fetch;
+		const loader = loaderFromArgv([], "/docs-repo", fakeFetch);
+		await loader.loadFile("core", "index.md");
+		expect(loader.describeSource("core", "index.md")).toBe(
+			"https://raw.githubusercontent.com/bunary-dev/core/v0.4.0/docs/index.md",
+		);
+	});
+
+	test("loaderFromArgv() with --ref main fetches from main without the registry", async () => {
+		const urls: string[] = [];
+		const fakeFetch = (async (url: string | URL | Request) => {
+			urls.push(String(url));
+			return new Response("# core", { status: 200 });
+		}) as typeof fetch;
+		const loader = loaderFromArgv(["--ref", "main"], "/docs-repo", fakeFetch);
+		await loader.loadFile("core", "index.md");
+		expect(urls).toEqual(["https://raw.githubusercontent.com/bunary-dev/core/main/docs/index.md"]);
+		expect(loader.describeSource("core", "index.md")).toBe(
+			"https://raw.githubusercontent.com/bunary-dev/core/main/docs/index.md",
+		);
+	});
+
+	test("loaderFromArgv() rejects --ref without a value", () => {
+		expect(() => loaderFromArgv(["--ref"], "/docs-repo")).toThrow(/--ref/);
+		expect(() => loaderFromArgv(["--ref", "--local"], "/docs-repo")).toThrow(/--ref/);
 	});
 
 	test("loaderFromArgv() with bare --local uses ../packages relative to cwd", () => {
@@ -193,5 +221,114 @@ describe("documentation sync: local mode", () => {
 	test("loaderFromArgv() with --local <root> uses the given root", () => {
 		const loader = loaderFromArgv(["--local", "/elsewhere/pkgs"], "/ws/documentation");
 		expect(loader.describeSource("core", "index.md")).toBe("/elsewhere/pkgs/core/docs/index.md");
+	});
+});
+
+describe("documentation sync: published release", () => {
+	/** Fake fetch: registry versions per package, raw files per URL; records requested URLs. */
+	function releaseFetch(
+		versions: Record<string, string | number>,
+		files: Record<string, string>,
+		urls: string[] = [],
+	): typeof fetch {
+		return (async (url: string | URL | Request) => {
+			const u = String(url);
+			urls.push(u);
+			const reg = u.match(/^https:\/\/registry\.npmjs\.org\/@bunary\/([^/]+)\/latest$/);
+			if (reg) {
+				const v = versions[reg[1]!];
+				if (v === undefined) return new Response("not found", { status: 404, statusText: "Not Found" });
+				if (typeof v === "number") return new Response("err", { status: v });
+				return Response.json({ name: `@bunary/${reg[1]}`, version: v });
+			}
+			const body = files[u];
+			if (body === undefined) return new Response("404: Not Found", { status: 404 });
+			return new Response(body, { status: 200 });
+		}) as typeof fetch;
+	}
+
+	const raw = (repo: string, ref: string, file: string) =>
+		`https://raw.githubusercontent.com/bunary-dev/${repo}/${ref}/docs/${file}`;
+
+	test("resolves the version from the npm registry and fetches from the v<version> tag", async () => {
+		const urls: string[] = [];
+		const loader = createReleaseLoader(
+			releaseFetch({ http: "0.4.0" }, { [raw("http", "v0.4.0", "index.md")]: "# @bunary/http 0.4.0\n" }, urls),
+		);
+		expect(await loader.loadFile("http", "index.md")).toBe("# @bunary/http 0.4.0\n");
+		expect(urls).toEqual([
+			"https://registry.npmjs.org/@bunary/http/latest",
+			raw("http", "v0.4.0", "index.md"),
+		]);
+	});
+
+	test("resolves the registry version once per package; optional files may be absent", async () => {
+		const urls: string[] = [];
+		const loader = createReleaseLoader(
+			releaseFetch({ cli: "0.4.1" }, { [raw("cli", "v0.4.1", "index.md")]: "# cli\n" }, urls),
+		);
+		await loader.loadFile("cli", "index.md");
+		expect(await loader.loadFile("cli", "api.md")).toBeNull();
+		expect(urls.filter((u) => u.startsWith("https://registry.npmjs.org/"))).toHaveLength(1);
+	});
+
+	test("the generated header shows the tag URL", async () => {
+		const writes = new Map<string, string>();
+		await syncPackages({
+			repoRootDir: "/repo",
+			targets: [{ repo: "cli", outputFileName: "cli.md" }],
+			loader: createReleaseLoader(
+				releaseFetch(
+					{ cli: "0.4.1" },
+					{
+						[raw("cli", "v0.4.1", "index.md")]: "# @bunary/cli\n",
+						[raw("cli", "v0.4.1", "api.md")]: "## API\n",
+					},
+				),
+			),
+			writeFile: async (path, content) => {
+				writes.set(path, content);
+			},
+		});
+		const out = writes.get("/repo/packages/cli.md")!;
+		expect(out).toContain(`  Source: ${raw("cli", "v0.4.1", "index.md")}\n`);
+		expect(out).toContain(`  Source: ${raw("cli", "v0.4.1", "api.md")}\n`);
+		expect(out).not.toContain("/main/");
+	});
+
+	test("a registry error throws naming the package", async () => {
+		const loader = createReleaseLoader(releaseFetch({ orm: 503 }, {}));
+		expect(loader.loadFile("orm", "index.md")).rejects.toThrow(/@bunary\/orm/);
+	});
+
+	test("a registry response without a version throws naming the package", async () => {
+		const fakeFetch = (async () => Response.json({ name: "@bunary/auth" })) as typeof fetch;
+		expect(createReleaseLoader(fakeFetch).loadFile("auth", "index.md")).rejects.toThrow(/@bunary\/auth/);
+	});
+
+	test("a missing tag throws naming the package and tag, and never falls back to main", async () => {
+		const urls: string[] = [];
+		const loader = createReleaseLoader(
+			releaseFetch({ http: "0.5.0" }, { [raw("http", "main", "index.md")]: "# unreleased\n" }, urls),
+		);
+		expect(loader.loadFile("http", "index.md")).rejects.toThrow(/http.*v0\.5\.0/);
+		await loader.loadFile("http", "index.md").catch(() => {});
+		expect(urls.some((u) => u.includes("/main/"))).toBe(false);
+	});
+
+	test("release errors fail syncPackages() even when strict=false", async () => {
+		const writes: string[] = [];
+		const run = syncPackages({
+			repoRootDir: "/repo",
+			strict: false,
+			targets: [{ repo: "http", outputFileName: "http.md" }],
+			loader: createReleaseLoader(releaseFetch({ http: "0.5.0" }, {})),
+			writeFile: async (path) => {
+				writes.push(path);
+			},
+		});
+		expect(run).rejects.toThrow(/v0\.5\.0/);
+		await run.catch(() => {});
+		expect(writes).toHaveLength(0);
 	});
 });

@@ -58,7 +58,7 @@ All build/sync scripts live in this repo and are run from the documentation repo
 
 | Command | What it does |
 |--------|----------------|
-| `bun run sync:packages` | Fetch package docs (index + quickstart + api + migration when present) from GitHub and write `packages/*.md`. Add `--local [root]` to read from local sibling checkouts for preview. |
+| `bun run sync:packages` | Fetch package docs (index + quickstart + api + migration when present) from each package's **published** release (npm `latest` → `v<version>` git tag) and write `packages/*.md`. Add `--ref main` to preview unreleased docs, or `--local [root]` to read from local sibling checkouts. |
 | `bun run sync:site` | Build guides + packages markdown into React components for the site. Cleans the site docs output dir, then generates. |
 | `bun run sync` | Run `sync:packages` then `sync:site` (full pipeline). |
 
@@ -76,6 +76,8 @@ This will update:
 - `packages/auth.md`
 - `packages/orm.md`
 - `packages/cli.md`
+
+The docs follow each package's **published** version: the script resolves `@bunary/<pkg>`'s `latest` version from the npm registry and reads `docs/` at the `v<version>` tag (a registry error or missing tag fails the sync; it never falls back to `main`). Resync after a package is published. To preview unreleased docs from a branch, run `bun run scripts/sync-packages.ts --ref main` (don't commit that output).
 
 To preview changes against local sibling package checkouts instead of GitHub, run `bun run scripts/sync-packages.ts --local` (bare `--local` defaults to `../packages` relative to the repo root).
 
