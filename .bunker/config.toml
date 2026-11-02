@@ -1,0 +1,13 @@
+# runs in each worktree before the agent
+setup = "bun install --frozen-lockfile"
+
+# must pass before anything is pushed
+verify = "bun test"
+
+[merge]
+# the maintainer reviews and merges every PR (#63)
+mode = "manual"
+
+[models]
+# Opus 5.5 for every bunker role, same as the bunary packages (#63)
+default = "claude-opus-5-5"

@@ -1,2 +1,8 @@
 node_modules/
 .worktrees/
+
+# bunker local state and dev-workflow worktrees
+.bunker/.env
+.bunker/runs/
+.bunker/sessions/
+.bunker/watch-*
