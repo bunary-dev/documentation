@@ -31,15 +31,25 @@ export interface DocMetadata {
 	order?: number;
 }
 
-export function parseFrontmatter(content: string): { metadata: DocMetadata; body: string } {
-	const frontmatterRegex = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
+/**
+ * Drop a leading `<!-- … -->` block (and the whitespace after it) such as the
+ * AUTO-GENERATED header written by sync:packages. react-markdown escapes raw
+ * HTML, so it would otherwise render as visible text. Comments elsewhere are kept.
+ */
+export function stripLeadingComment(content: string): string {
+	return content.replace(/^\s*<!--[\s\S]*?-->\s*/, "");
+}
+
+export function parseFrontmatter(rawContent: string): { metadata: DocMetadata; body: string } {
+	const content = stripLeadingComment(rawContent);
+	const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
 	const match = content.match(frontmatterRegex);
 
 	if (!match) {
 		const h1Match = content.match(/^#\s+(.+)$/m);
 		const title = h1Match ? h1Match[1].trim() : basename(content, ".md");
-		const afterH1 = content.replace(/^#\s+.*?\n+/, "").trim();
-		const pMatch = afterH1.match(/^([^\n]+?)(?:\n\n|\n##|$)/);
+		const afterH1 = content.replace(/^#\s+.*?(?:\r?\n)+/, "").trim();
+		const pMatch = afterH1.match(/^([^\r\n]+?)(?:\r?\n\r?\n|\r?\n##|$)/);
 		const description = pMatch ? pMatch[1].trim() : "";
 		return { metadata: { title, description }, body: content };
 	}
@@ -47,7 +57,7 @@ export function parseFrontmatter(content: string): { metadata: DocMetadata; body
 	const frontmatter = match[1];
 	const body = match[2];
 	const metadata: DocMetadata = { title: "", description: "" };
-	for (const line of frontmatter.split("\n")) {
+	for (const line of frontmatter.split(/\r?\n/)) {
 		const m = line.match(/^(\w+):\s*(.+)$/);
 		if (m) {
 			const [, key, value] = m;
