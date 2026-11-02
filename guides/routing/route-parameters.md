@@ -85,3 +85,15 @@ router.get("/archive/:year?/:month?", (ctx) => {
 // Constraints work with optional params
 router.get("/posts/:id?", (ctx) => ({})).whereNumber("id");
 ```
+
+## Route Model Binding
+
+Declare `bind` in a route's options to resolve a path parameter to the record it names. The handler reads it from `ctx.bound`, and the route answers `404` when the resolver returns `null` or `undefined`:
+
+```typescript
+router.get("/users/:user", { bind: { user: (id) => User.find(id) } }, (ctx) => {
+  return { name: ctx.bound.user.name };
+});
+```
+
+See [Route Model Binding](/docs/packages/http#route-model-binding) in the `@bunary/http` package docs for typed params, scoped bindings and binding on WebSocket routes.
