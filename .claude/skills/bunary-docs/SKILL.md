@@ -18,7 +18,7 @@ package repo `docs/` → (sync:packages) → `documentation/packages/*.md` → (
 
 ## Pipeline commands (run from the documentation repo root)
 
-- `bun run sync:packages` — fetch package docs from GitHub main, compose per contract order (`index.md` + `quickstart.md` + `api.md` + `migration.md`), write `packages/*.md`.
+- `bun run sync:packages` — fetch package docs from each package's published release tag (`v<npm latest>`; `--ref main` previews unreleased), compose per contract order (`index.md` + `quickstart.md` + `api.md` + `migration.md`), write `packages/*.md`.
 - `bun run scripts/sync-packages.ts --local [root]` — same, but read from local sibling checkouts (default root `../packages`); use to preview unpushed package-doc changes. Never commit locally-sourced `packages/*.md` — committed output must come from the remote sync.
 - `bun run sync:site` — convert guides + packages markdown to React components in the site repo.
 - CI drift check: a PR here must include the `packages/*.md` produced by `bun run sync:packages`, or CI fails.
