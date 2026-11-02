@@ -9,33 +9,47 @@ Command-line interface for the Bunary framework. Provides project scaffolding an
 
 ## Installation
 
+Globally, so `bunary` is on your PATH:
+
 ```bash
-bun add -g @bunary/cli
+bun add -g @bunary/cli@^0.4.0
+```
+
+Or per project, run with `bunx bunary`:
+
+```bash
+bun add @bunary/cli@^0.4.0
 ```
 
 Or use directly with `bunx`:
 
 ```bash
-bunx @bunary/cli --help
+bunx @bunary/cli@^0.4.0 --help
 ```
+
+To run the current source, or a standalone binary with the stubs embedded
+(`bun build ./src/bin.ts --compile`), see
+[Installation in the README](../README.md#from-source).
 
 ## Commands (high level)
 
 | Command | Description |
 |--------|-------------|
-| `bunary init [name] [--auth basic\|jwt]` | Create a new Bunary project |
-| `bunary model:make <table-name>` | Generate ORM model in `src/models/` |
-| `bunary middleware:make <name>` | Generate middleware in `src/middleware/` |
-| `bunary migration:make <name>` | Create migration in `./migrations/` |
-| `bunary migrate` | Run pending migrations |
-| `bunary migrate:rollback` | Rollback last migration batch |
-| `bunary migrate:status` | Show migration status |
-| `bunary route:make <name>` | Generate route module in `src/routes/` |
+| `bunary init [name] [--auth basic\|jwt] [--force] [-i]` | Create a new Bunary project |
+| `bunary make:route <name>` | Generate route module in `src/routes/` |
+| `bunary make:middleware <name>` | Generate middleware in `src/middleware/` |
+| `bunary make:command <name> [--name <cli-name>]` | Generate an app command in `src/commands/` |
+| `bunary make:provider <name>` | Generate a service provider in `src/providers/` |
+| `bunary <command> --help` | Help for one command |
 | `bunary --help`, `bunary --version` | Help and version |
 
-### bunary init [name] [--auth basic|jwt]
+Commands contributed by installed packages (e.g. `make:model` and `db:*` from `@bunary/orm`) and your app's own commands are listed by `bunary --help` too; see [Package commands](#package-commands) and [Custom Project Commands](#custom-project-commands).
 
-Creates a new Bunary project. You can pass a directory name or `.` for the current directory. With `--auth basic` or `--auth jwt` you get auth middleware stubs (same as running `middleware:make basic` or `jwt` after init).
+Flags accept `--key value` and `--key=value`; a bare `--` ends flag parsing. Flags declaring a short `alias` also accept it (e.g. `-p 4000`).
+
+### bunary init [name] [--auth basic|jwt] [--force] [--interactive]
+
+Creates a new Bunary project. You can pass a directory name or `.` for the current directory. With `--auth basic` or `--auth jwt` you get auth middleware stubs (same as running `make:middleware basic` or `jwt` after init).
 
 ```bash
 bunary init my-app
@@ -43,75 +57,189 @@ bunary init my-app --auth jwt
 bunary init .
 ```
 
-The command creates `package.json`, `config/bunary.ts`, `src/index.ts`, and `src/routes/` (main, groupExample, index). If you used `--auth`, it also creates `src/middleware/basic.ts` or `jwt.ts` and wires it in the entrypoint. Next steps: `cd <name>`, `bun install`, `bun run dev`.
+Run `bunary init` with no name in a terminal and it walks you through the setup instead: it asks for the project name, shows the target directory, and lets you pick the auth scaffolding with the arrow keys (or by typing its number). Pass `--interactive` (`-i`) to get the prompts even when you give a name; anything given upfront becomes the default. Without a TTY (CI, piped stdin) or with `--no-interactive`, `init` never prompts and fails if the name is missing, so scripts keep working unchanged.
 
-### bunary model:make \<table-name\>
+`init` aborts without writing anything if any file it would create already exists; pass `--force` to overwrite.
 
-Generates an ORM model file in `src/models/`. Table names are converted to PascalCase (e.g. `user_profile` → `UserProfile.ts`). You must be in a Bunary project (package.json with `@bunary/core`). The command will not overwrite an existing file.
+All scaffolding commands (`init` and every `make:*`) accept `--dry-run` to print the files that would be created without writing anything (exit code 0); add `--verbose` to also print file contents. The flag may come before the command: `bunary --dry-run init my-app`.
 
-### bunary middleware:make \<name\>
+The command creates `package.json`, `tsconfig.json`, `config/bunary.ts`, `src/index.ts`, and `src/routes/` (main, groupExample, index). If you used `--auth`, it also creates `src/middleware/basic.ts` or `jwt.ts` and wires it in the entrypoint. Next steps: `cd <name>`, `bun install`, `bun run dev`. The generated project typechecks with `bunx tsc --noEmit` against the `^0.4.0` packages it pins.
 
-Generates a middleware file in `src/middleware/`. For names `basic` or `jwt` it uses the auth stubs (Basic or JWT guard); for other names it uses a generic `(ctx, next)` stub. Requires a Bunary project.
+### Generators (make:*)
 
-### bunary migration:make \<name\>
+Every generator must run inside a Bunary project (`package.json` with `@bunary/core`), writes `<name>.ts` into its directory, and never overwrites an existing file.
 
-Creates a migration file in `./migrations/` with a timestamp prefix (e.g. `20260129120000_create_users_table.ts`). The stub derives a table name from the migration name (e.g. `create_users_table` → `"users"`). Requires `@bunary/orm` in the project.
+Names must start with a letter and contain only letters, digits, `_` and `-`: no path separators, dots or whitespace. The target path is also checked against the project root after resolving symlinks, so a `src/routes` symlink pointing outside the project is refused rather than followed.
 
-### bunary migrate, migrate:rollback, migrate:status
+#### bunary make:route \<name\>
 
-Run pending migrations, rollback the last batch, or show status. The CLI runs your project’s migrator; on first use it creates `scripts/migrate.ts`. The project needs `src/config/orm.ts` that calls `setOrmConfig` so the migrator can connect.
+Generates a route module in `src/routes/` with a register function that takes the `Router` from `@bunary/http` (e.g. `registerUsers(router)`). You then add that function to `src/routes/index.ts` and call it from `registerRoutes`.
 
-### bunary route:make \<name\>
+#### bunary make:middleware \<name\>
 
-Generates a route module in `src/routes/` with a register function (e.g. `registerUsers(app)`). You then add that function to `src/routes/index.ts` and call it from `registerRoutes`. Requires a Bunary project.
+Generates a middleware file in `src/middleware/`. For names `basic` or `jwt` it uses the auth stubs (Basic or JWT guard); for other names it uses a generic `(ctx, next)` stub. Register it with `router.use(...)` in `src/index.ts`.
+
+#### bunary make:command \<name\> [--name \<cli-name\>]
+
+Generates `src/commands/<name>.ts` exporting e.g. `sendEmailsCommand`, typed with the `Command` interface from `@bunary/core`. The CLI name defaults to the file name; `--name mail:send` sets another. Register it in `config/bunary.ts` (see [Custom Project Commands](#custom-project-commands)).
+
+#### bunary make:provider \<name\>
+
+Generates `src/providers/<name>.ts` exporting e.g. `cacheProvider`, built with `defineProvider` from `@bunary/core` (a `register` hook for bindings and an async `boot` hook). Add it to `createApp({ providers: [...] })`.
+
+## Database and migrations
+
+The CLI does not run migrations. Bunary's ORM builds on Drizzle, so migrations belong to [drizzle-kit](https://orm.drizzle.team/docs/kit-overview):
+
+- With `@bunary/orm` installed, it contributes `make:model` and the `db:*` commands (`db:generate`, `db:migrate`, `db:studio`) as [package commands](#package-commands). They are thin pass-throughs to drizzle-kit.
+- Without it, use drizzle-kit directly: `bunx drizzle-kit generate`, `bunx drizzle-kit migrate`, `bunx drizzle-kit studio`.
+
+The migration runner, the migration generator and the built-in model generator from 0.x are gone; running one of their old names prints where to go instead. The 0.x `<thing>:make` generators are now `make:<thing>`.
+
+## Package commands
+
+A direct `@bunary/*` dependency of your project can contribute CLI commands. The package declares a module in its `package.json`:
+
+```json
+{
+  "name": "@bunary/orm",
+  "bunary": { "commands": "./dist/cli.js" }
+}
+```
+
+The module exports a `commands` array (or a default-exported array) of `Command` objects from `@bunary/core`, so the package never depends on the CLI:
+
+```typescript
+import type { Command } from "@bunary/core";
+
+export const commands: Command[] = [
+  {
+    name: "db:migrate",
+    description: "Apply pending migrations (drizzle-kit migrate)",
+    usage: "bunary db:migrate",
+    category: "database",
+    run: async () => { /* ... */ },
+  },
+];
+```
+
+At startup the CLI reads your `package.json` (`dependencies` and `devDependencies`), finds each installed `@bunary/*` package that declares `bunary.commands`, and registers its commands. Commands of packages that are not installed, not direct dependencies, or outside the `@bunary` scope are never loaded, and do not appear in `--help` or in "Did you mean?" suggestions.
+
+- A package whose commands collide with a built-in or with another package's commands is ignored with a warning; the built-ins keep working.
+- A package whose module fails to load, or points outside the package, is skipped with a warning.
+- If `category` is omitted it defaults to the package name.
 
 ## Generated files (examples)
 
-What init and the generators produce.
+What init and the generators produce. The output is written against the
+0.4.0 APIs: `createApp` / `defineConfig` / `defineProvider` from
+`@bunary/core`, `createRouter` / `Router` from `@bunary/http` (mounted with
+`httpProvider` and started with `serve` from `@bunary/http/provider`), and
+`createAuth` with the guards of `@bunary/auth`.
 
-**package.json (default):** dependencies include `@bunary/core` and `@bunary/http`. With `--auth basic` or `--auth jwt`, `@bunary/auth` is added.
+**package.json (default):** dependencies include `@bunary/core` and `@bunary/http`, both `^0.4.0`. With `--auth basic` or `--auth jwt`, `@bunary/auth` `^0.4.0` is added.
 
-**config/bunary.ts:** Uses `defineConfig` from `@bunary/core`. Sets app name, env, debug.
+**tsconfig.json:** Strict, `moduleResolution: "bundler"`, `noEmit`, with Bun's types, so `bunx tsc --noEmit` typechecks the project.
 
-**src/index.ts:** Creates the app with `createApp`, calls `registerRoutes(app)`, then `app.listen({ port: 3000 })`. With auth, it also imports the middleware and calls `app.use(basicMiddleware)` or `app.use(jwtMiddleware)`.
-
-**src/routes/main.ts:** Registers `/` and `/health`. groupExample registers `/api` and `/api/health`. You add `route:make` modules in `src/routes/index.ts`.
-
-**migration:make output:** A file with `up()` and `down()` using `Schema` from `@bunary/orm` (createTable/dropTable).
-
-**middleware:make output (generic):** A single export, e.g. `ensureAuthMiddleware`, of type `Middleware` from `@bunary/http`, with `(ctx, next)` and `return next()`.
-
-**route:make output:** A file that exports e.g. `registerUsers(app: BunaryApp)`; you wire it in `src/routes/index.ts`.
-
-## Programmatic API
-
-You can call init and the project generators from code. All of them are async.
+**config/bunary.ts:** Uses `defineConfig` from `@bunary/core`. Sets app name, env, debug, and the `http.port` the server listens on:
 
 ```typescript
-import {
-  init,
-  generatePackageJson,
-  generateConfig,
-  generateEntrypoint,
-  generateRoutesMain,
-  generateRoutesIndex,
-  generateRoutesGroupExample,
-  generateMiddlewareContent,
-  makeModel,
-} from "@bunary/cli";
-import type { InitOptions } from "@bunary/cli";
+import { defineConfig } from "@bunary/core";
 
-await init("my-app");
-await init("my-app", { auth: "jwt" });
-
-const packageJson = await generatePackageJson("my-app");
-const config = await generateConfig("my-app");
-const entrypoint = await generateEntrypoint({ auth: "basic" });
-
-await makeModel("user_profile");  // run from a Bunary project directory
+export default defineConfig({
+  app: {
+    name: "my-app",
+    env: "development",
+    debug: true,
+  },
+  http: {
+    port: 3000,
+  },
+});
 ```
 
-InitOptions: `{ auth?: "basic" | "jwt" }`. Pass to `init`, `generatePackageJson`, `generateConfig`, `generateEntrypoint`, and the route generators when you want auth scaffolding. Commands like `middleware:make`, `migration:make`, `route:make`, and `migrate` are CLI-only; there is no programmatic API for those.
+**src/index.ts:** Builds a router with `createRouter`, registers the routes, mounts the router on a core app with `httpProvider`, boots it with the config above and starts the server with `serve(app)`:
+
+```typescript
+import { createApp } from "@bunary/core";
+import { createRouter } from "@bunary/http";
+import { httpProvider, serve } from "@bunary/http/provider";
+import config from "../config/bunary.js";
+import { registerRoutes } from "./routes/index.js";
+
+const router = createRouter();
+registerRoutes(router);
+
+// Providers (make:provider) go in the providers array, after httpProvider.
+const app = await createApp({
+  config,
+  providers: [httpProvider(router)],
+}).boot();
+
+// Port and hostname come from the `http` key in config/bunary.ts.
+const server = serve(app);
+console.log(`🚀 Server running at http://localhost:${server.port}`);
+```
+
+With `--auth jwt` (or `basic`) the router is typed with `AuthLocals`, so handlers can read `ctx.locals.auth`, and the middleware is registered before the routes:
+
+```typescript
+import type { AuthLocals } from "@bunary/auth";
+import { jwtMiddleware } from "./middleware/jwt.js";
+
+const router = createRouter<AuthLocals>();
+router.use(jwtMiddleware);
+registerRoutes(router);
+```
+
+**src/routes/main.ts:** Registers `/` and `/health`. groupExample registers `/api/health` and `/api/users/:id`. You add `make:route` modules in `src/routes/index.ts`:
+
+```typescript
+import type { Router } from "@bunary/http";
+import { registerMain } from "./main.js";
+import { registerGroupExample } from "./groupExample.js";
+
+export function registerRoutes(router: Router): void {
+	registerMain(router);
+	registerGroupExample(router);
+}
+```
+
+**src/middleware/jwt.ts / basic.ts (`--auth` or `make:middleware jwt|basic`):** `createAuth` from `@bunary/auth` with a `createJwtGuard` (reads `JWT_SECRET`) or `createBasicGuard` (checks `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD`); the module throws at startup if the variables are unset.
+
+**make:middleware output (generic):** A single export, e.g. `ensureAuthMiddleware`, of type `Middleware` from `@bunary/http`, with `(ctx, next)` and `return next()`. Register it with `router.use(ensureAuthMiddleware)`.
+
+**make:route output:** A file that exports e.g. `registerUsers(router: Router)`; you wire it in `src/routes/index.ts`:
+
+```typescript
+import type { Router } from "@bunary/http";
+
+export function registerUsers(router: Router): void {
+	router.get("/users", () => ({
+		data: [],
+	})).name("users.index");
+
+	router.get<{ id: string }>("/users/:id", (ctx) => ({
+		id: ctx.params.id,
+	})).name("users.show").whereNumber("id");
+}
+```
+
+**make:command output:** A `Command` object (`name`, `description`, `usage`, `category`, `run`) exported as e.g. `sendEmailsCommand`.
+
+**make:provider output:** A `defineProvider({ name, register, boot })` export, e.g. `cacheProvider`. Add it to the `providers` array in `src/index.ts`.
+
+The CLI test suite generates projects with every combination of `init` and `make:*`, installs the published `^0.4.0` packages and checks they pass `tsc --noEmit`.
+
+## Running the CLI from code
+
+The `bunary` executable is a thin wrapper; importing the package has no side effects. It exports `run(argv)`, which runs a command and resolves to the exit code, plus the `Command` types:
+
+```typescript
+import { run } from "@bunary/cli";
+
+const code = await run(["make:route", "users", "--dry-run"]);
+```
 
 ## Requirements
 
@@ -139,13 +267,16 @@ my-app/
 
 ### Defining a command
 
-Each command is a plain object with `name`, `description`, and an async `run` function:
+Each command is a plain object implementing `Command` from `@bunary/core`, with `name`, `description`, and an async `run` function. `bunary make:command seed --name db:seed` generates one:
 
 ```typescript
 // src/commands/seed.ts
-export const seedDatabase = {
+import type { Command } from "@bunary/core";
+
+export const seedCommand: Command = {
   name: "db:seed",
   description: "Seed the database with test data",
+  usage: "bunary db:seed",
   category: "project",
   run: async () => {
     console.log("Seeding...");
@@ -161,12 +292,12 @@ Add a `commands` array to your config file. The CLI looks for `config/bunary.ts`
 ```typescript
 // config/bunary.ts
 import { defineConfig } from "@bunary/core";
-import { seedDatabase } from "../src/commands/seed.js";
-import { deploy } from "../src/commands/deploy.js";
+import { seedCommand } from "../src/commands/seed.js";
+import { deployCommand } from "../src/commands/deploy.js";
 
 export default defineConfig({
   app: { name: "my-app" },
-  commands: [seedDatabase, deploy],
+  commands: [seedCommand, deployCommand],
 });
 ```
 
@@ -174,6 +305,19 @@ Now `bunary db:seed` and `bunary deploy` work from your project root. They also 
 
 ### Rules
 
-- Project commands can't override built-in commands (`init`, `migrate`, etc.). The CLI throws if there's a name collision.
-- Commands missing `name`, `description`, or `run` are silently skipped.
+- Project commands can't override built-in commands (`init`, `make:route`, etc.) or commands contributed by packages. The CLI exits with an error naming both sides if there's a name collision.
+- Commands missing `name`, `description`, or `run` are skipped with a warning.
 - If `category` is omitted it defaults to `"project"`.
+- Flag names may be written core-style (`"force"`, alias `"f"`) or CLI-style (`"--force"`, alias `"-f"`).
+
+
+### Declaring flags in project commands
+
+Flags that accept a value must set `takesValue: true` (or list `values`) in their `CommandFlag` definition. A flag declaring neither is a boolean switch: it never consumes the next argument, and `--flag=value` is rejected with an error.
+
+```ts
+flags: [
+  { name: "--out", description: "Output directory", takesValue: true },
+  { name: "--force", description: "Overwrite files" },
+],
+```

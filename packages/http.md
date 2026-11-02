@@ -12,7 +12,7 @@ Part of the [Bunary](https://github.com/bunary-dev) ecosystem: a Bun-first backe
 ## Features
 
 - 🚀 **Bun-native** - Uses `Bun.serve()` directly, no Node.js compatibility layer
-- 📦 **Zero dependencies** - No runtime dependencies
+- 📦 **Minimal dependencies** - Only the `cookie` package at runtime
 - 🔒 **Type-safe** - Full TypeScript support with strict types
 - ⚡ **Fast** - Minimal overhead, direct routing
 - 🧩 **Simple API** - Chainable route registration with automatic JSON serialization
@@ -22,47 +22,62 @@ Part of the [Bunary](https://github.com/bunary-dev) ecosystem: a Bun-first backe
 - ❓ **Optional Parameters** - Flexible routes with optional path segments
 - 🌐 **Wildcard Routes** - Catch-all `/*` and `/**` patterns for SPA fallbacks and proxies
 - 🔀 **CORS** - Built-in CORS middleware with configurable origins, methods, headers, and credentials
+- 🗂️ **Static Files** - `serveStatic()` serves a directory with ETag / `Last-Modified` caching and path-traversal protection
+- 🚦 **Rate Limiting** - In-memory fixed-window `rateLimit()` middleware with `RateLimit-*` headers and a pluggable store
+- 📨 **Response Helpers** - `json`, `text`, `html`, `redirect`, `status` on `ctx` and as standalone functions
+- 🔁 **Content negotiation** - Return a `Resource`; the `Accept` header picks among its opt-in formats (JSON, JSON-LD, …), with 406 for anything else
+- 📡 **Server-Sent Events** - `sse()` streams `text/event-stream` responses with event framing, keep-alive pings and disconnect signals
+- 🔁 **WebSockets** - `router.ws()` routes on `Bun.serve`, behind the same params, constraints, groups and middleware as HTTP routes
+- 🍪 **Cookies** - `ctx.cookies` reads the request and queues `Set-Cookie` headers for the response
+- 🔌 **Core integration** - Optional `httpProvider()` / `serve()` mount the router on a `@bunary/core` Application
 
 ## Installation
 
 ```bash
-bun add @bunary/http
+bun add @bunary/http@^0.4.0
+```
+
+`@bunary/core` is an optional peer, needed only for route validation and the
+`@bunary/http/provider` integration:
+
+```bash
+bun add @bunary/core@^0.4.0
 ```
 
 ## Quick Start
 
 ```typescript
-import { createApp } from '@bunary/http';
+import { createRouter } from '@bunary/http';
 
-const app = createApp();
+const router = createRouter();
 
-app.get('/hello', () => ({ message: 'Hello, Bun!' }));
+router.get('/hello', () => ({ message: 'Hello, Bun!' }));
 
-app.listen({ port: 3000 });
+router.listen({ port: 3000 });
 ```
 
 ## API
 
-### `createApp(options?)`
+### `createRouter(options?)`
 
-Creates a new Bunary application instance.
+Creates a new Bunary router instance.
 
 ```typescript
-import { createApp } from '@bunary/http';
+import { createRouter } from '@bunary/http';
 
 // Without basePath
-const app = createApp();
+const router = createRouter();
 
 // With basePath (prefixes all routes)
-const apiApp = createApp({ basePath: '/api' });
-apiApp.get('/users', () => ({})); // Matches /api/users
+const apiRouter = createRouter({ basePath: '/api' });
+apiRouter.get('/users', () => ({})); // Matches /api/users
 ```
 
 **Options:**
 - `basePath` - Optional base path prefix for all routes (useful when mounting behind a reverse proxy)
   - Automatically normalized (leading slash added, trailing slash removed)
   - Composes with route groups: `basePath + group prefix + route path`
-  - Included in `app.route()` URL generation
+  - Included in `router.route()` URL generation
 - `onNotFound` - Custom handler for 404 Not Found responses
   - Called when no route matches the request path
   - Receives `RequestContext` (params empty, query available)
@@ -76,12 +91,19 @@ apiApp.get('/users', () => ({})); // Matches /api/users
   - Called when a route handler or middleware throws an error
   - Receives `RequestContext` and the error object
   - Can return `Response` or `HandlerResponse`
-  - If not provided, the default handler hides error details in production
+  - If not provided, the default handler hides error details unless `debug`, core's `app.debug` or a development/test environment says otherwise
+  - Called at most once per failure: if `onError` itself throws, it is not called again with its own error; the router answers with a generic `500` problem response, which global middleware still sees
+- `debug` - Whether the default 500 handler includes `error.message` as `detail`
+  - When unset, a router mounted on a `@bunary/core` Application follows core's `app.debug`; a standalone router only shows detail if the environment is explicitly `development` or `test`. See [Error Handling](#error-handling)
+- `maxBodySize` - Maximum body size, in bytes, that `ctx.body.json()` / `.text()` / `.formData()` will read
+  - A larger body throws an `HttpError` with status 413, answered as a `413 Content Too Large` problem response
+  - Checked against `Content-Length` up front, and while streaming for bodies without one
+  - Unset means no router-level limit (Bun's `maxRequestBodySize`, 128 MiB by default, still applies)
 
 **Example with custom error handlers:**
 
 ```typescript
-const app = createApp({
+const router = createRouter({
   basePath: '/api',
   onNotFound: (ctx) => {
     return new Response('Not Found', { status: 404 });
@@ -101,7 +123,7 @@ const app = createApp({
 
 #### Typed Locals
 
-Pass a type parameter to `createApp()` to get type-safe `ctx.locals`:
+Pass a type parameter to `createRouter()` to get type-safe `ctx.locals`:
 
 ```typescript
 interface AppLocals {
@@ -109,15 +131,15 @@ interface AppLocals {
   requestId: string;
 }
 
-const app = createApp<AppLocals>();
+const router = createRouter<AppLocals>();
 
-app.use(async (ctx, next) => {
+router.use(async (ctx, next) => {
   ctx.locals.user = await getUser(ctx.request);  // typed
   ctx.locals.requestId = crypto.randomUUID();     // typed
   return next();
 });
 
-app.get('/me', (ctx) => ({
+router.get('/me', (ctx) => ({
   name: ctx.locals.user.name,       // typed as string
   requestId: ctx.locals.requestId,  // typed as string
 }));
@@ -130,10 +152,10 @@ The generic defaults to `Record<string, unknown>`, so existing code is fully bac
 Register routes using chainable HTTP method helpers:
 
 ```typescript
-app
+router
   .get('/users', () => ({ users: [] }))
   .post('/users', async (ctx) => {
-    const body = await ctx.json();
+    const body = await ctx.body.json();
     return { id: 1, ...body };
   })
   .put('/users/:id', (ctx) => {
@@ -147,16 +169,33 @@ app
   });
 ```
 
+### Route Matching
+
+Routes match in registration order: the first route whose path (and
+constraints) matches wins, including for `HEAD`→`GET` fallback, `405` `Allow`
+headers and `OPTIONS` responses.
+
+Matching does not test every route on every request. At registration time each
+route is indexed by its first static path segment (`/api/users` → `api`), and
+routes whose first segment is a parameter, optional parameter or wildcard
+(`/:slug`, `/:id?`, `/*`) go in a fallback bucket. A request is only tested
+against the routes sharing its first segment plus the fallback routes, still
+in registration order, so an earlier `/:slug` still beats a later `/about`.
+Group prefixes and `basePath` are part of the indexed path. An app with
+hundreds of routes spread over several top-level prefixes tests only a
+fraction of them per request; routes behind a leading parameter
+(`/:tenant/...`) are still tested on every request. Run `bun bench/routes.ts` to compare.
+
 ### Path Parameters
 
 Path parameters are extracted automatically and decoded with `decodeURIComponent`:
 
 ```typescript
-app.get('/users/:id', (ctx) => {
+router.get('/users/:id', (ctx) => {
   return { userId: ctx.params.id };
 });
 
-app.get('/posts/:postId/comments/:commentId', (ctx) => {
+router.get('/posts/:postId/comments/:commentId', (ctx) => {
   const { postId, commentId } = ctx.params;
   return { postId, commentId };
 });
@@ -167,19 +206,19 @@ app.get('/posts/:postId/comments/:commentId', (ctx) => {
 Pass a type parameter to any route method for typed `ctx.params`:
 
 ```typescript
-app.get<{ id: string }>('/users/:id', (ctx) => {
+router.get<{ id: string }>('/users/:id', (ctx) => {
   ctx.params.id;  // string (not string | undefined)
   return { userId: ctx.params.id };
 });
 
-app.get<{ org: string; repo: string }>('/orgs/:org/repos/:repo', (ctx) => {
+router.get<{ org: string; repo: string }>('/orgs/:org/repos/:repo', (ctx) => {
   ctx.params.org;   // string
   ctx.params.repo;  // string
   return { org: ctx.params.org, repo: ctx.params.repo };
 });
 
 // Optional params
-app.get<{ format?: string }>('/data/:format?', (ctx) => {
+router.get<{ format?: string }>('/data/:format?', (ctx) => {
   return { format: ctx.params.format ?? 'json' };
 });
 ```
@@ -193,7 +232,7 @@ When no type parameter is provided, `ctx.params` defaults to `Record<string, str
 Path parameters are automatically decoded from their URL-encoded form:
 
 ```typescript
-app.get('/users/:name', (ctx) => {
+router.get('/users/:name', (ctx) => {
   return { name: ctx.params.name };
 });
 
@@ -205,7 +244,7 @@ app.get('/users/:name', (ctx) => {
 Encoded slashes (`%2F`) are captured within a single segment and decoded:
 
 ```typescript
-app.get('/files/:path', (ctx) => {
+router.get('/files/:path', (ctx) => {
   return { path: ctx.params.path };
 });
 
@@ -214,12 +253,23 @@ app.get('/files/:path', (ctx) => {
 
 > **Note:** Route constraints (`.where()`) are checked against the **decoded** parameter value.
 
+> **Security:** matching happens on the raw path, but decoding runs afterwards, so a
+> single-segment parameter can still come back holding `/` or `..`:
+> `GET /files/a%2F..%2Fb` matches `/files/:path` and yields `ctx.params.path === "a/../b"`.
+> Never concatenate `ctx.params` straight into a filesystem path, a shell argument or
+> another URL — validate it, or pin it down with a constraint:
+>
+> ```typescript
+> router.get('/files/:name', (ctx) => Bun.file(`./uploads/${ctx.params.name}`))
+>   .where('name', /^[a-zA-Z0-9_-]+\.txt$/);
+> ```
+
 ### Query Parameters
 
 Query parameters are accessed via `URLSearchParams` API:
 
 ```typescript
-app.get('/search', (ctx) => {
+router.get('/search', (ctx) => {
   const q = ctx.query.get('q');
   const page = ctx.query.get('page');
   const limit = ctx.query.get('limit');
@@ -230,7 +280,7 @@ app.get('/search', (ctx) => {
 For multi-value query parameters (e.g., `?tag=a&tag=b`), use `getAll()`:
 
 ```typescript
-app.get('/filter', (ctx) => {
+router.get('/filter', (ctx) => {
   const tags = ctx.query.getAll('tag');
   return { tags };
 });
@@ -245,40 +295,67 @@ interface RequestContext<
   TLocals extends object = Record<string, unknown>,
   TParams extends PathParams = PathParams,
 > {
-  request: Request;  // Original Bun Request object
+  request: Request;  // The underlying Web Request
   params: TParams;   // Path parameters (narrowed by route generic)
   query: URLSearchParams;  // Query parameters (use .get() and .getAll())
-  locals: TLocals;   // Per-request storage (narrowed by createApp generic)
+  locals: TLocals;   // Per-request storage (narrowed by createRouter generic)
 
-  // Body parsing helpers
-  json<T = unknown>(): Promise<T>;     // Parse JSON body (throws BodyParseError)
-  text(): Promise<string>;             // Get body as string
-  formData(): Promise<FormData>;       // Parse form data (throws BodyParseError)
+  // Body readers
+  body: BodyReader;  // ctx.body.json() / .text() / .formData()
+
+  // Response helpers
+  json<T>(data: T, init?: ResponseInit): Response;
+  text(body: string, init?: ResponseInit): Response;
+  html(body: string, init?: ResponseInit): Response;
+  redirect(url: string, status?: number): Response;  // default 302
+  status(code: number, init?: ResponseInit): Response;
+}
+
+interface BodyReader {
+  json<T = unknown>(): Promise<T>;   // Parse JSON body (throws BodyParseError)
+  text(): Promise<string>;           // Read body as string
+  formData(): Promise<FormData>;     // Parse form data (throws BodyParseError)
 }
 ```
 
-#### Body Parsing Helpers
+#### Body Readers
 
-`ctx.json()`, `ctx.text()`, and `ctx.formData()` are thin wrappers around the underlying `Request` methods with improved error handling:
+`ctx.body.json()`, `ctx.body.text()`, and `ctx.body.formData()` are thin wrappers around the underlying `Request` methods with improved error handling:
 
 ```typescript
 // Parse JSON with type inference
-app.post('/users', async (ctx) => {
-  const body = await ctx.json<{ name: string; email: string }>();
+router.post('/users', async (ctx) => {
+  const body = await ctx.body.json<{ name: string; email: string }>();
   return { id: 1, name: body.name, email: body.email };
 });
 
 // Get raw text body
-app.post('/webhooks', async (ctx) => {
-  const payload = await ctx.text();
+router.post('/webhooks', async (ctx) => {
+  const payload = await ctx.body.text();
   return { received: payload.length };
 });
 
 // Parse form data
-app.post('/upload', async (ctx) => {
-  const form = await ctx.formData();
+router.post('/upload', async (ctx) => {
+  const form = await ctx.body.formData();
   const name = form.get('name');
   return { name };
+});
+```
+
+> **Moved in 0.4.0** — the body readers used to live directly on the context
+> (`ctx.json()`, `ctx.text()`, `ctx.formData()`). They now live under `ctx.body.*`
+> so that `ctx.json(data)` can be the response helper, matching Hono and Elysia.
+> See [Response Handling](#response-handling).
+
+With the router's `maxBodySize` option set, every reader refuses a body larger than that many bytes by throwing an `HttpError` with status 413, which the default error handler answers as `413 Content Too Large`:
+
+```typescript
+const router = createRouter({ maxBodySize: 1024 * 1024 }); // 1 MiB
+
+router.post('/upload', async (ctx) => {
+  const form = await ctx.body.formData(); // 413 for a body over 1 MiB
+  return { name: form.get('name') };
 });
 ```
 
@@ -287,9 +364,9 @@ Malformed bodies throw `BodyParseError`, which you can catch for custom error re
 ```typescript
 import { BodyParseError } from '@bunary/http';
 
-app.post('/users', async (ctx) => {
+router.post('/users', async (ctx) => {
   try {
-    return await ctx.json();
+    return await ctx.body.json();
   } catch (error) {
     if (error instanceof BodyParseError) {
       return new Response(
@@ -303,10 +380,38 @@ app.post('/users', async (ctx) => {
 ```
 
 > The original `ctx.request` is still available for advanced use cases (e.g. streaming, `arrayBuffer()`, `blob()`).
-> Note: per the Fetch API, the request body can only be consumed once. If middleware calls `ctx.json()`, `ctx.text()`, or `ctx.formData()`, the downstream handler cannot read the body again; instead, share the parsed data via `ctx.locals` or work with a cloned request if you need to access the body in multiple places.
+> Note: per the Fetch API, the request body can only be consumed once. If middleware calls `ctx.body.json()`, `ctx.body.text()`, or `ctx.body.formData()`, the downstream handler cannot read the body again; instead, share the parsed data via `ctx.locals` or work with a cloned request if you need to access the body in multiple places.
 
-`TLocals` is set once via `createApp<TLocals>()` and flows to all handlers and middleware.
-`TParams` is set per-route via `app.get<TParams>()` and only affects that handler's `ctx.params`.
+#### Cookies
+
+`ctx.cookies` reads the incoming `Cookie` header lazily and queues `Set-Cookie` headers for the response. Queued cookies are appended onto whatever `Response` the router ultimately returns — a route handler's return value, a 404/405 fallback, or an error response — from one place in the pipeline, after global middleware has produced the final response.
+
+```typescript
+router.get('/login', (ctx) => {
+  ctx.cookies.set('session', 'abc123', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 7, // 1 week
+  });
+  return ctx.json({ ok: true });
+});
+
+router.get('/logout', (ctx) => {
+  ctx.cookies.delete('session'); // Max-Age=0 + an epoch Expires
+  return ctx.json({ ok: true });
+});
+
+router.get('/whoami', (ctx) =>
+  ctx.json({ session: ctx.cookies.get('session'), all: ctx.cookies.getAll() })
+);
+```
+
+`ctx.cookies.set()`/`delete()` accept a `CookieSerializeOptions` (`path`, `domain`, `maxAge`, `expires`, `httpOnly`, `secure`, `sameSite`, `partitioned`, `priority`) — a re-export of the [`cookie`](https://www.npmjs.com/package/cookie) package's serialize options. There is no signing or encryption; that belongs to a future security package.
+
+`TLocals` is set once via `createRouter<TLocals>()` and flows to all handlers and middleware.
+`TParams` is set per-route via `router.get<TParams>()` and only affects that handler's `ctx.params`.
 
 Both default to their untyped forms for full backward compatibility.
 
@@ -317,20 +422,23 @@ Both default to their untyped forms for full backward compatibility.
 HEAD requests are automatically handled for GET routes. They return the same status code and headers as the corresponding GET request, but with an empty body:
 
 ```typescript
-app.get('/users', () => ({ users: [] }));
+router.get('/users', () => ({ users: [] }));
 
 // HEAD /users returns 200 with empty body
-// Preserves all headers from GET handler
+// Preserves all headers from GET handler, and sets Content-Length
+// to the size the GET body would have had (RFC 9110)
 ```
+
+`Content-Length` is only filled in when the GET body is at most 64 KiB and finishes within 50 ms (and the handler did not set the header itself). Larger, slow or never-ending bodies, such as Server-Sent Events or long-poll streams, are cancelled and the HEAD response is sent straight away without `Content-Length`.
 
 #### OPTIONS Requests
 
-OPTIONS requests return `204 No Content` with an `Allow` header listing all permitted methods for the path:
+OPTIONS requests return `204 No Content` with an `Allow` header listing all permitted methods for the path. `OPTIONS` is always included, and `HEAD` whenever a `GET` route exists, since the router serves both without them being registered:
 
 ```typescript
-app.get('/users', () => ({}));
-app.post('/users', () => ({}));
-app.delete('/users', () => ({}));
+router.get('/users', () => ({}));
+router.post('/users', () => ({}));
+router.delete('/users', () => ({}));
 
 // OPTIONS /users returns:
 // Status: 204
@@ -344,8 +452,8 @@ If no route matches the path, OPTIONS returns `404`.
 When a path exists but the requested method is not allowed, the response includes an `Allow` header:
 
 ```typescript
-app.get('/users', () => ({}));
-app.post('/users', () => ({}));
+router.get('/users', () => ({}));
+router.post('/users', () => ({}));
 
 // PUT /users returns:
 // Status: 405 Method Not Allowed
@@ -358,17 +466,187 @@ Handlers can return various types - they're automatically serialized:
 
 ```typescript
 // Objects/Arrays → JSON with Content-Type: application/json
-app.get('/json', () => ({ data: 'value' }));
+router.get('/json', () => ({ data: 'value' }));
 
 // Strings → text/plain
-app.get('/text', () => 'Hello, world!');
+router.get('/text', () => 'Hello, world!');
 
 // Response objects passed through unchanged
-app.get('/custom', () => new Response('Custom', { status: 201 }));
+router.get('/custom', () => new Response('Custom', { status: 201 }));
 
 // null/undefined → 204 No Content
-app.get('/empty', () => null);
+router.get('/empty', () => null);
 ```
+
+#### Response Helpers
+
+When you need control over the status code or headers, use the response helpers.
+They are available on the context and as standalone functions — both return a
+plain Web `Response`, so they compose with anything.
+
+```typescript
+router.post('/users', (ctx) => ctx.json({ id: 1 }, { status: 201 }));
+router.get('/ping', (ctx) => ctx.text('pong'));
+router.get('/', (ctx) => ctx.html('<h1>Hello</h1>'));
+router.get('/old', (ctx) => ctx.redirect('/new', 301));
+router.delete('/users/:id', (ctx) => ctx.status(204));
+```
+
+The same functions are exported from the barrel, for middleware, helpers, or
+anywhere without a context:
+
+```typescript
+import { html, json, redirect, status, text } from '@bunary/http';
+
+json({ message: 'Hello' });                        // application/json; charset=utf-8
+json({ id: 1 }, { status: 201 });                  // any ResponseInit
+text('pong');                                      // text/plain; charset=utf-8
+html('<h1>Hello</h1>');                            // text/html; charset=utf-8
+redirect('/login');                                // 302 + location header
+redirect('https://example.com/next', 307);         // explicit status
+status(204);                                       // empty body, status only
+status(202, { headers: { 'x-job': 'queued' } });   // extra headers
+```
+
+| Helper | Status | Content-Type |
+|---|---|---|
+| `json(data, init?)` | `200` (or `init.status`) | `application/json; charset=utf-8` |
+| `text(body, init?)` | `200` (or `init.status`) | `text/plain; charset=utf-8` |
+| `html(body, init?)` | `200` (or `init.status`) | `text/html; charset=utf-8` |
+| `redirect(url, status = 302)` | `302` (or the argument) | — (sets `location`) |
+| `status(code, init?)` | the `code` argument | — (empty body) |
+
+`init` is a standard `ResponseInit`. Its headers are merged with the helper's
+default content-type, and an explicit `content-type` in `init` wins:
+
+```typescript
+json(doc, { headers: { 'content-type': 'application/ld+json' } });
+text('a,b\n1,2', { headers: { 'content-type': 'text/csv' } });
+```
+
+`status()` always returns an empty body and the `code` argument always wins over
+a `status` in `init`, which keeps bodyless codes such as `204`, `205` and `304`
+valid.
+
+#### Server-Sent Events
+
+`sse(ctx, handler, options?)` returns a streaming `Response` with
+`Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache` and
+`Connection: keep-alive`. The handler (sync or async) receives a stream writer;
+the response stays open until it calls `close()` or the client disconnects.
+
+```typescript
+import { sse } from '@bunary/http';
+
+router.get('/clock', (ctx) =>
+  sse(ctx, (stream) => {
+    const timer = setInterval(() => {
+      stream.send({ event: 'tick', id: String(Date.now()), data: { now: Date.now() } });
+    }, 1000);
+    stream.signal.addEventListener('abort', () => clearInterval(timer));
+  }, { keepAlive: 15_000 }),
+);
+```
+
+| Member | Description |
+|---|---|
+| `send({ data, event?, id?, retry? })` | Writes one event. String `data` is sent as-is, anything else is JSON-encoded; multi-line data becomes one `data:` line per line. Line breaks are stripped from `event` and `id`. |
+| `comment(text)` | Writes a `: text` comment line, which clients ignore. |
+| `close()` | Ends the stream and stops the keep-alive timer. Writes after closing are ignored. |
+| `signal` | `AbortSignal` that fires when the client disconnects (`ctx.request.signal`) or the response body is cancelled. |
+| `closed` | `true` once the stream has ended for any reason. |
+
+Options:
+
+- `keepAlive` — interval in milliseconds for `: ping` comments that keep idle
+  proxies from dropping the connection. The timer is cleared on close or abort.
+- `headers` — extra response headers, merged over the defaults.
+
+If the handler throws (or its promise rejects), the stream is closed; catch
+inside the handler if you need to log the error. `HEAD` on an SSE route returns
+the headers promptly and cancels the stream (see [HEAD Requests](#head-requests)).
+
+### Resources and content negotiation
+
+A handler can return a `Resource` instead of raw data. The router then picks the
+response format from the request's `Accept` header, among the formats the
+resource explicitly supports, and sets the matching `Content-Type`. One URL, one
+handler; the conversions live in the resource.
+
+```typescript
+import { createRouter, Resource } from '@bunary/http';
+
+class UserResource extends Resource {
+  constructor(private readonly user: { id: number; name: string }) {
+    super();
+  }
+
+  // Opt-in formats, keyed by media type
+  override formats = {
+    'application/ld+json': () => this.toJsonLd(),
+  };
+
+  // application/json — always supported
+  toJSON() {
+    return { id: this.user.id, name: this.user.name };
+  }
+
+  toJsonLd() {
+    return {
+      '@context': 'https://schema.org',
+      '@type': 'Person',
+      '@id': `/users/${this.user.id}`,
+      name: this.user.name,
+    };
+  }
+}
+
+router.get('/users/:id', (ctx) => new UserResource(findUser(ctx.params.id)));
+```
+
+```http
+GET /users/1                         → 200 Content-Type: application/json
+Accept: application/ld+json          → 200 Content-Type: application/ld+json
+Accept: application/json;q=0.5, application/ld+json
+                                     → 200 Content-Type: application/ld+json
+Accept: text/csv                     → 406 Not Acceptable (problem+json)
+```
+
+How the format is chosen (RFC 9110 §12.5.1):
+
+- `toJSON()` is always served as `application/json`. Other media types are
+  served only if listed in `formats`; an `application/json` entry there is
+  ignored.
+- Each supported type takes the q-value of the most specific matching range
+  (`type/subtype` over `type/*` over `*/*`). The highest q wins; ties go to the
+  range listed first in `Accept`, then to `application/json`, then to the
+  `formats` order. `q=0` excludes a type. Media-type parameters other than `q`
+  are ignored.
+- A missing `Accept`, `*/*` and `application/*` select `application/json`.
+- If nothing supported is acceptable, the response is a `406` problem document
+  whose `detail` lists the available media types, e.g.
+  `Available media types: application/json, application/ld+json`.
+- Every response from a `Resource`, including the 406, carries `Vary: Accept`,
+  appended to any `Vary` already set.
+
+A converter's return value is JSON-encoded, unless it is a string, `Blob`,
+`ArrayBuffer`, typed array or `ReadableStream`, which is sent as-is — so a
+`'text/csv': () => toCsv(rows)` converter works too.
+
+Optional `status` and `headers` fields on the resource set the response status
+(default `200`) and extra headers:
+
+```typescript
+class CreatedUser extends UserResource {
+  override status = 201;
+  override headers = { Location: '/users/1' };
+}
+```
+
+Handlers that return plain objects, strings, numbers or `Response`s are not
+negotiated and get no `Vary: Accept`. In group middleware, pass the request to
+`toResponse(await next(), ctx.request)` so a `Resource` is negotiated; without
+the request it is served as `application/json`.
 
 ### Starting the Server
 
@@ -376,10 +654,10 @@ Both object and positional forms are supported:
 
 ```typescript
 // Object form (recommended)
-const server = app.listen({ port: 3000, hostname: 'localhost' });
+const server = router.listen({ port: 3000, hostname: 'localhost' });
 
 // Positional form
-const server = app.listen(3000, 'localhost');
+const server = router.listen(3000, 'localhost');
 
 console.log(`Server running on ${server.hostname}:${server.port}`);
 
@@ -387,15 +665,30 @@ console.log(`Server running on ${server.hostname}:${server.port}`);
 server.stop();
 ```
 
-### Testing Without Server
-
-Use `app.fetch()` to test handlers directly:
+The object form also passes these through to `Bun.serve`, only when supplied (Bun's defaults apply otherwise): `development`, `error`, `maxRequestBodySize` (bytes; Bun's default is 128 MiB), `idleTimeout` (seconds) and `tls`. The router never lets a failure escape — a throwing `onError` falls back to a generic `500` problem response — so `error` only fires for failures inside Bun itself.
 
 ```typescript
-const app = createApp();
-app.get('/hello', () => ({ message: 'hi' }));
+router.listen({
+  port: 443,
+  maxRequestBodySize: 10 * 1024 * 1024, // 10 MiB
+  idleTimeout: 30,
+  tls: { cert: Bun.file('cert.pem'), key: Bun.file('key.pem') },
+});
+```
 
-const response = await app.fetch(new Request('http://localhost/hello'));
+`listen()` also wires the router's `websocket` handler into `Bun.serve`, so [WebSocket routes](#websockets) work without extra setup.
+
+For a limit on what handlers read, rather than what Bun accepts, set the router's `maxBodySize`: `ctx.body.*` then throws a 413 `HttpError` for larger bodies.
+
+### Testing Without Server
+
+Use `router.fetch()` to test handlers directly:
+
+```typescript
+const router = createRouter();
+router.get('/hello', () => ({ message: 'hi' }));
+
+const response = await router.fetch(new Request('http://localhost/hello'));
 const data = await response.json();
 // { message: 'hi' }
 ```
@@ -404,11 +697,48 @@ const data = await response.json();
 
 Add middleware to handle cross-cutting concerns like logging, authentication, and error handling.
 
+Global middleware — registered with `router.use()` — wraps **every** response the router
+produces: matched routes, `404`, `405`, the `OPTIONS` auto-response and error responses
+alike. That is what lets `cors()` and request logging apply uniformly.
+
+The pipeline is `global middleware → error boundary → dispatcher`, which has two
+consequences worth knowing:
+
+- `next()` hands global middleware a `Response`, not the handler's raw return value.
+- A handler that throws reaches global middleware as a `500` response rather than a
+  thrown error. An error thrown by a global middleware itself still reaches `onError`.
+
+Group and route middleware run *inside* the error boundary, so they still see raw
+handler return values and can `try`/`catch` a throwing handler.
+
+Unlike global middleware, a group (or route) middleware's `next()` resolves to the
+handler's **raw return value** — a plain object, array, string, number, `null`/`undefined`
+or a `Response`. To add a header, normalise it with the exported `toResponse()` first:
+
+```typescript
+import { createRouter, toResponse } from '@bunary/http';
+
+router.group({ prefix: '/api', middleware: [
+  async (ctx, next) => {
+    const response = toResponse(await next(), ctx.request);
+    response.headers.set('X-Api-Version', '1');
+    return response;
+  },
+] }, (api) => {
+  api.get('/users', () => ({ users: [] }));  // plain object → JSON Response
+});
+```
+
+`toResponse()` passes a `Response` through unchanged, turns `null`/`undefined` into
+`204 No Content`, strings and numbers into `text/plain`, and objects/arrays into JSON.
+Pass `ctx.request` as the second argument so a returned [`Resource`](#resources-and-content-negotiation)
+is negotiated against the request's `Accept` header.
+
 ### Basic Middleware
 
 ```typescript
 // Logging middleware
-app.use(async (ctx, next) => {
+router.use(async (ctx, next) => {
   const start = Date.now();
   const result = await next();
   console.log(`${ctx.request.method} ${new URL(ctx.request.url).pathname} - ${Date.now() - start}ms`);
@@ -425,7 +755,7 @@ Middleware executes in registration order. Each middleware can:
 - Return early without calling `next()`
 
 ```typescript
-app
+router
   .use(async (ctx, next) => {
     console.log('First - before');
     const result = await next();
@@ -445,7 +775,7 @@ app
 ### Error Handling Middleware
 
 ```typescript
-app.use(async (ctx, next) => {
+router.use(async (ctx, next) => {
   try {
     return await next();
   } catch (error) {
@@ -462,7 +792,7 @@ app.use(async (ctx, next) => {
 ### Auth Middleware (Example)
 
 ```typescript
-app.use(async (ctx, next) => {
+router.use(async (ctx, next) => {
   const token = ctx.request.headers.get('Authorization');
   if (!token) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
@@ -476,19 +806,25 @@ app.use(async (ctx, next) => {
 
 Built-in CORS middleware handles preflight `OPTIONS` requests and adds the appropriate headers to actual responses.
 
-```typescript
-import { createApp, cors } from '@bunary/http';
+Registered globally with `router.use(cors())`, it covers error and not-found responses too.
+`Access-Control-Allow-Methods` advertises the methods the path actually serves (an explicit
+`methods` option still wins), `Vary` is appended rather than overwritten, and `Vary: Origin`
+is sent even when an origin is rejected, or the request has no `Origin` header at all, so shared
+caches cannot mix the CORS and no-CORS variants.
 
-const app = createApp();
+```typescript
+import { createRouter, cors } from '@bunary/http';
+
+const router = createRouter();
 
 // Allow any origin (default)
-app.use(cors());
+router.use(cors());
 ```
 
 #### Configuration
 
 ```typescript
-app.use(cors({
+router.use(cors({
   origin: 'https://myapp.com',             // string, string[], or "*" (default)
   methods: ['GET', 'POST'],                 // default: GET, HEAD, PUT, POST, DELETE, PATCH
   allowHeaders: ['Content-Type', 'X-Token'], // default: reflects Access-Control-Request-Headers
@@ -498,26 +834,360 @@ app.use(cors({
 }));
 ```
 
+#### Credentials and wildcard origins
+
+`credentials: true` combined with a wildcard origin (`"*"`, `["*"]` or the default) would reflect
+*any* request `Origin` with `Access-Control-Allow-Credentials: true`, letting any site make
+credentialed requests and read the responses. `cors()` therefore **throws** at creation time for
+that combination. List explicit origins instead, or pass `allowWildcardCredentials: true` to opt in
+knowingly:
+
+```typescript
+cors({ credentials: true });                                   // throws
+cors({ origin: 'https://myapp.com', credentials: true });      // ok
+cors({ credentials: true, allowWildcardCredentials: true });   // ok, reflects any Origin
+```
+
+`["*"]` is treated exactly like `"*"`.
+
 #### Multiple Origins
 
 ```typescript
-app.use(cors({
+router.use(cors({
   origin: ['https://app1.com', 'https://app2.com'],
   credentials: true,
 }));
 ```
 
-When `origin` is a string or array (not `"*"`), a `Vary: Origin` header is included automatically so caches distinguish responses per origin.
+When `origin` is a string or array (not `"*"`), or `credentials` is on, a `Vary: Origin` header is included automatically so caches distinguish responses per origin — including on same-origin or non-browser requests that send no `Origin`. With the wildcard default and no credentials, responses are identical for every origin and no `Vary` is added.
 
 #### Per-Group CORS
 
 Apply CORS to specific route groups instead of globally:
 
 ```typescript
-app.group({ prefix: '/api', middleware: [cors()] }, (router) => {
-  router.get('/users', () => ({ users: [] }));
+router.group({ prefix: '/api', middleware: [cors()] }, (api) => {
+  api.get('/users', () => ({ users: [] }));
 });
 ```
+
+### Rate Limiting
+
+`rateLimit()` counts requests per key in fixed windows. Once a key goes over `limit` requests in
+the current window, the middleware answers with a `429` problem response and a `Retry-After`
+header (seconds) without calling the handler. Every response, allowed or not, gets these headers:
+
+| Header | Value |
+| --- | --- |
+| `RateLimit-Limit` | the configured `limit` |
+| `RateLimit-Remaining` | requests left in the current window |
+| `RateLimit-Reset` | seconds until the window ends |
+
+```typescript
+import { createRouter, rateLimit } from '@bunary/http';
+
+const router = createRouter();
+
+// 100 requests per minute per client IP
+router.use(rateLimit({ limit: 100, windowMs: 60_000 }));
+
+// Stricter limit on login, keyed by API key instead of IP
+router.group(
+  {
+    prefix: '/auth',
+    middleware: [
+      rateLimit({
+        limit: 5,
+        windowMs: 15 * 60_000,
+        key: (ctx) => ctx.request.headers.get('x-api-key') ?? 'anonymous',
+      }),
+    ],
+  },
+  (auth) => auth.post('/login', () => ({ ok: true })),
+);
+```
+
+| Option | Default | |
+| --- | --- | --- |
+| `limit` | required | requests allowed per key per window |
+| `windowMs` | required | window length in milliseconds |
+| `key(ctx)` | client IP | the key requests are counted against |
+| `trustProxy` | `false` | use the first `X-Forwarded-For` hop as the client IP |
+| `store` | in-memory | a `RateLimitStore` holding the counters |
+
+The default key is the client IP. With `trustProxy: true` it is the first `X-Forwarded-For` hop;
+only enable that behind a proxy that sets the header, otherwise any client can choose its own key.
+Without it the header is ignored and the socket address is used, which the router reads from the
+server passed to `router.fetch(request, server)` (`router.listen()` and `Bun.serve({ fetch:
+router.fetch })` both pass it). When no address is available, as with `router.fetch(request)` in
+tests, every request shares one key.
+
+> **In-memory, single process.** The default store keeps counters in a `Map` inside the process.
+> Each process (or cluster worker, or server instance) has its own counters, so the effective limit
+> is multiplied by the number of processes, and counters reset on restart. Expired entries are
+> pruned as requests arrive. For a shared limit, pass a `store` that implements
+> `increment(key, windowMs) => { count, resetAt }` (`resetAt` in epoch milliseconds, may return a
+> promise), for example on top of Redis.
+
+## Static Files
+
+`serveStatic(root, options?)` returns a route handler that serves files from a directory. Mount it on a wildcard route: the captured path (`ctx.params["*"]`) names the file relative to `root`.
+
+```typescript
+import { createRouter, serveStatic } from '@bunary/http';
+
+const router = createRouter();
+
+router.get('/assets/*', serveStatic('./public', { maxAge: 3600 }));
+// GET /assets/css/site.css → ./public/css/site.css
+```
+
+Files are read with `Bun.file`. Each response carries:
+
+- `Content-Type` from the file extension (`application/octet-stream` when unknown)
+- `Content-Length`
+- `Last-Modified`
+- a weak `ETag` (`W/"<size>-<mtime>"`)
+- `Cache-Control: public, max-age=N` when `maxAge` is set
+
+`If-None-Match` (including `*` and comma-separated lists) and `If-Modified-Since` are honoured with a bodyless `304 Not Modified`; `If-None-Match` takes precedence when both are sent. `HEAD` requests get the same headers without the file being read.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `index` | — | File to serve for directory requests, e.g. `"index.html"`. Without it, directories are 404 (there is never a listing). |
+| `dotfiles` | `"deny"` | `"allow"` serves paths with a segment starting with `.` (`.env`, `.well-known/…`); `"deny"` answers them with 404. |
+| `maxAge` | — | Seconds for `Cache-Control: public, max-age=N`. No `Cache-Control` when omitted. |
+
+Everything that is not a servable file is a `404` problem response, the same as an unmatched route:
+
+- missing files, and directories without an `index` file
+- dotfiles, unless `dotfiles: "allow"`
+- `..` or `.` segments, including percent-encoded ones (`%2e%2e`, `..%2f`), absolute paths (`%2Fetc%2Fpasswd`, `//etc`), backslashes and NUL bytes
+- any path whose real location, with symlinks resolved, is outside `root` — a symlink inside `root` pointing elsewhere is not followed out
+
+Symlinks whose target stays inside `root` are served.
+
+## WebSockets
+
+`router.ws(path, handlers, options?)` registers a WebSocket route. `handlers` is `{ open?, message?, close?, drain? }`; each receives Bun's [`ServerWebSocket`](https://bun.sh/docs/api/websockets), whose `ws.data` holds the route's `params` and the request's `locals`.
+
+```typescript
+import { createRouter } from '@bunary/http';
+
+const router = createRouter();
+
+router.ws('/rooms/:room', {
+  open(ws) {
+    ws.subscribe(ws.data.params.room);
+  },
+  message(ws, message) {
+    ws.publish(ws.data.params.room, message);
+  },
+  close(ws, code, reason) {
+    ws.unsubscribe(ws.data.params.room);
+  },
+});
+
+router.listen(3000);
+// new WebSocket('ws://localhost:3000/rooms/lobby')
+```
+
+A WebSocket route is a `GET` route: path params, constraints (`.where*()`), names, groups (prefix, name prefix and middleware) and global middleware all apply, and they run **before** the upgrade. A middleware that returns a response instead of calling `next()` rejects the connection with that response, so authentication works as it does for HTTP routes:
+
+```typescript
+import { createRouter, type Middleware } from '@bunary/http';
+
+interface Locals { user: { id: string } }
+
+const router = createRouter<Locals>();
+
+const auth: Middleware<Locals> = async (ctx, next) => {
+  const user = await findUser(ctx.query.get('token'));
+  if (!user) return new Response('Unauthorized', { status: 401 }); // never upgraded
+  ctx.locals.user = user;
+  return await next();
+};
+
+router.group({ prefix: '/live', middleware: [auth] }, (live) => {
+  live.ws('/feed', {
+    open(ws) {
+      ws.send(`hello ${ws.data.locals.user.id}`);
+    },
+  });
+});
+```
+
+Once middleware has passed, the router calls `server.upgrade(request, { data })` inside `router.fetch`. A request to a WebSocket route without `Upgrade: websocket` (a plain `GET`) gets a `426 Upgrade Required` problem response with `Upgrade: websocket`; an `Upgrade` request Bun rejects (e.g. no `Sec-WebSocket-Key`) gets `400`. Global middleware sees a `101` response for a successful upgrade. Cookies queued with `ctx.cookies` before the upgrade are sent on the `101` response.
+
+| Option | Description |
+|--------|-------------|
+| `upgrade(ctx)` | Runs after middleware, just before the upgrade; the object it returns (or resolves to) is merged into `ws.data`. `params` and `locals` always win. |
+| `headers` | Extra headers for the `101 Switching Protocols` response. |
+
+```typescript
+router.ws(
+  '/chat/:room',
+  {
+    open(ws) {
+      ws.data.joinedAt; // number — inferred from upgrade()
+    },
+  },
+  { upgrade: (ctx) => ({ joinedAt: Date.now() }) },
+);
+```
+
+Type the params with `router.ws<{ room: string }>(...)` as with `router.get`; `ws.data.locals` takes the router's `TLocals`.
+
+### Using your own `Bun.serve`
+
+`router.listen()` passes a single `websocket` handler to `Bun.serve` that dispatches each connection's events to the route it was upgraded on. When you call `Bun.serve` yourself with `router.fetch`, pass `router.websocket` too, spreading it to add Bun's WebSocket settings:
+
+```typescript
+Bun.serve({
+  port: 3000,
+  fetch: router.fetch,
+  websocket: { ...router.websocket, maxPayloadLength: 1024 * 1024, idleTimeout: 60 },
+});
+```
+
+`router.fetch(request)` called without Bun's server (as in tests) cannot upgrade: a plain `GET` still gets `426`, but an upgrade request fails with a `500`. Test WebSocket routes against `router.listen({ port: 0 })`.
+
+## Validation
+
+Pass an options object between the path and the handler to validate a route's
+`params`, `query` and `body`. Each slot takes a `SchemaLike`: a
+[Standard Schema](https://standardschema.dev) object (zod, valibot, arktype, …)
+or a plain function that returns the parsed value and throws on bad input.
+
+```typescript
+import { z } from 'zod';
+import { createRouter } from '@bunary/http';
+
+const router = createRouter();
+
+router.post(
+  '/users/:id',
+  {
+    params: z.object({ id: z.coerce.number() }),
+    query: z.object({ notify: z.enum(['yes', 'no']).default('no') }),
+    body: z.object({ name: z.string(), email: z.email() }),
+  },
+  (ctx) => {
+    ctx.params.id;    // number
+    ctx.query.notify; // "yes" | "no"
+    ctx.body.name;    // string
+    return ctx.json({ id: ctx.params.id }, { status: 201 });
+  },
+);
+```
+
+Validation needs `@bunary/core` for its `validateWith`. Core is an **optional
+peer**: it is imported dynamically and only when a route actually declares
+schemas, so a router that validates nothing never loads it.
+
+```bash
+bun add @bunary/core@^0.4.0
+```
+
+### Typed context
+
+A validated slot **replaces** its context value with the schema's output; an
+unvalidated slot keeps its default. So with a `body` schema `ctx.body` *is* the
+validated value — not a `BodyReader` wrapping it — and without one `ctx.body`
+stays the reader with `json()`, `text()` and `formData()`.
+
+| Slot | Without a schema | With a schema |
+|---|---|---|
+| `ctx.params` | `PathParams` (`Record<string, string \| undefined>`) | the schema's output |
+| `ctx.query` | `URLSearchParams` | the schema's output |
+| `ctx.body` | `BodyReader` | the schema's output |
+
+Because the validated slots change type, a `ValidatedContext` is **not** a
+`RequestContext`. To share a helper between validated and unvalidated handlers,
+type its parameter as `AnyContext<TLocals>`: every `RequestContext<TLocals>` and
+`ValidatedContext<TLocals, S>` is assignable to it. `locals`, `app`, `request`,
+`cookies` and the response helpers keep their types; `params`, `query` and
+`body` are `unknown`, so narrow them before use.
+
+```typescript
+import { z } from 'zod';
+import { createRouter, type AnyContext } from '@bunary/http';
+
+type Locals = { requestId: string };
+const router = createRouter<Locals>();
+
+function tag(ctx: AnyContext<Locals>): string {
+  return `${ctx.request.method} ${ctx.locals.requestId}`; // locals stay typed
+}
+
+router.get('/health', (ctx) => ({ tag: tag(ctx) }));
+router.get('/users/:id', { params: z.object({ id: z.coerce.number() }) }, (ctx) => ({
+  tag: tag(ctx), // a ValidatedContext is accepted too
+  id: ctx.params.id,
+}));
+```
+
+The two-argument form and the per-route `TParams` generic are unchanged:
+
+```typescript
+router.get('/legacy/:id', (ctx) => ({ id: ctx.params.id }));      // string | undefined
+router.get<{ id: string }>('/typed/:id', (ctx) => ctx.params.id); // string
+```
+
+### What each schema receives
+
+- **`params`** — the matched path parameters, as strings.
+- **`query`** — the query string as a plain object. A key that appears once is
+  a `string`; a repeated key (`?tag=a&tag=b`) is a `string[]` of its values in
+  order. A single value is never wrapped, so a `z.array(z.string())` schema
+  rejects `?tag=a` and a `z.string()` schema rejects `?tag=a&tag=b`; for a key
+  that may appear once or many times use
+  `z.union([z.string(), z.array(z.string())])`.
+- **`body`** — parsed by `content-type`: `application/json` and any
+  `application/*+json` type (`application/vnd.api+json`,
+  `application/merge-patch+json`, …) through `ctx.body.json()`, and
+  `application/x-www-form-urlencoded` or `multipart/form-data` through
+  `ctx.body.formData()` flattened to a plain object the same way as `query`: a
+  field that appears once is a single value (a `string`, or a `File` for an
+  upload), and a repeated field (`tag=a&tag=b`) is an array of its values in
+  order. Any other content type — including a request with no body — validates
+  `undefined`, so `z.string().optional()` passes and `z.object({...})` does not.
+
+### Plain functions
+
+```typescript
+router.get(
+  '/feed',
+  { query: (raw) => ({ limit: Number(raw.limit ?? '10') }) },
+  (ctx) => ({ limit: ctx.query.limit }), // number
+);
+```
+
+A function that throws is wrapped in a `ValidationError` just like a rejected
+Standard Schema.
+
+### Failures
+
+Validation runs inside the route pipeline **after** route and group middleware
+and before the handler, so middleware still sees the raw context. A rejected
+schema throws `@bunary/core`'s `ValidationError`, which the default error mapper
+turns into a `422` RFC 9457 problem document listing every issue:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Unprocessable Content",
+  "status": 422,
+  "detail": "Body validation failed: email: Invalid email address",
+  "instance": "/users/1",
+  "errors": [{ "path": "email", "message": "Invalid email address" }]
+}
+```
+
+Slots are validated in `params` → `query` → `body` order and the first failure
+wins. A body that cannot be parsed at all (malformed JSON, bad form data) is a
+`BodyParseError` → `400`, not a `422`. A custom `onError` still overrides the
+whole mapping.
 
 ## Route Groups
 
@@ -527,9 +1197,9 @@ Group routes together with shared prefixes, middleware, and name prefixes.
 
 ```typescript
 // Simple prefix
-app.group('/api', (router) => {
-  router.get('/users', () => ({ users: [] }));     // /api/users
-  router.get('/posts', () => ({ posts: [] }));     // /api/posts
+router.group('/api', (api) => {
+  api.get('/users', () => ({ users: [] }));     // /api/users
+  api.get('/posts', () => ({ posts: [] }));     // /api/posts
 });
 ```
 
@@ -543,20 +1213,20 @@ const authMiddleware = async (ctx, next) => {
   return await next();
 };
 
-app.group({
+router.group({
   prefix: '/admin',
   middleware: [authMiddleware],
   name: 'admin.'
-}, (router) => {
-  router.get('/dashboard', () => ({})).name('dashboard');  // name: admin.dashboard
-  router.get('/users', () => ({})).name('users');          // name: admin.users
+}, (admin) => {
+  admin.get('/dashboard', () => ({})).name('dashboard');  // name: admin.dashboard
+  admin.get('/users', () => ({})).name('users');          // name: admin.users
 });
 ```
 
 ### Nested Groups
 
 ```typescript
-app.group('/api', (api) => {
+router.group('/api', (api) => {
   api.group('/v1', (v1) => {
     v1.get('/users', () => ({}));  // /api/v1/users
   });
@@ -573,28 +1243,28 @@ Assign names to routes for URL generation.
 ### Naming Routes
 
 ```typescript
-app.get('/users/:id', (ctx) => ({})).name('users.show');
-app.get('/posts/:slug', (ctx) => ({})).name('posts.show');
+router.get('/users/:id', (ctx) => ({})).name('users.show');
+router.get('/posts/:slug', (ctx) => ({})).name('posts.show');
 ```
 
 ### Generating URLs
 
 ```typescript
 // Basic URL generation
-const url = app.route('users.show', { id: 42 });
+const url = router.route('users.show', { id: 42 });
 // "/users/42"
 
 // With query string
-const searchUrl = app.route('users.show', { id: 42, tab: 'profile' });
+const searchUrl = router.route('users.show', { id: 42, tab: 'profile' });
 // "/users/42?tab=profile"
 
 // Check if route exists
-if (app.hasRoute('users.show')) {
+if (router.hasRoute('users.show')) {
   // ...
 }
 
 // List all routes
-const routes = app.getRoutes();
+const routes = router.getRoutes();
 // [{ name: 'users.show', method: 'GET', path: '/users/:id' }, ...]
 ```
 
@@ -606,15 +1276,15 @@ Add regex constraints to validate route parameters.
 
 ```typescript
 // Only match if :id is numeric
-app.get('/users/:id', (ctx) => ({}))
+router.get('/users/:id', (ctx) => ({}))
   .where('id', /^\d+$/);
 
 // Using string pattern
-app.get('/posts/:slug', (ctx) => ({}))
+router.get('/posts/:slug', (ctx) => ({}))
   .where('slug', '^[a-z0-9-]+$');
 
 // Multiple constraints
-app.get('/users/:id/posts/:postId', (ctx) => ({}))
+router.get('/users/:id/posts/:postId', (ctx) => ({}))
   .where({ id: /^\d+$/, postId: /^\d+$/ });
 ```
 
@@ -622,28 +1292,28 @@ app.get('/users/:id/posts/:postId', (ctx) => ({}))
 
 ```typescript
 // whereNumber - digits only
-app.get('/users/:id', () => ({})).whereNumber('id');
+router.get('/users/:id', () => ({})).whereNumber('id');
 
 // whereAlpha - letters only (a-zA-Z)
-app.get('/categories/:name', () => ({})).whereAlpha('name');
+router.get('/categories/:name', () => ({})).whereAlpha('name');
 
 // whereAlphaNumeric - letters and digits
-app.get('/codes/:code', () => ({})).whereAlphaNumeric('code');
+router.get('/codes/:code', () => ({})).whereAlphaNumeric('code');
 
 // whereUuid - UUID format
-app.get('/items/:uuid', () => ({})).whereUuid('uuid');
+router.get('/items/:uuid', () => ({})).whereUuid('uuid');
 
 // whereUlid - ULID format
-app.get('/records/:ulid', () => ({})).whereUlid('ulid');
+router.get('/records/:ulid', () => ({})).whereUlid('ulid');
 
 // whereIn - specific allowed values
-app.get('/status/:status', () => ({})).whereIn('status', ['active', 'pending', 'archived']);
+router.get('/status/:status', () => ({})).whereIn('status', ['active', 'pending', 'archived']);
 ```
 
 ### Chaining Constraints
 
 ```typescript
-app.get('/users/:id/posts/:slug', (ctx) => ({}))
+router.get('/users/:id/posts/:slug', (ctx) => ({}))
   .whereNumber('id')
   .whereAlpha('slug')
   .name('users.posts');
@@ -655,7 +1325,7 @@ Use `?` to mark route parameters as optional.
 
 ```typescript
 // :id is optional
-app.get('/users/:id?', (ctx) => {
+router.get('/users/:id?', (ctx) => {
   if (ctx.params.id) {
     return { user: ctx.params.id };
   }
@@ -663,14 +1333,14 @@ app.get('/users/:id?', (ctx) => {
 });
 
 // Multiple optional params
-app.get('/archive/:year?/:month?', (ctx) => {
+router.get('/archive/:year?/:month?', (ctx) => {
   const { year, month } = ctx.params;
   // year and month may be undefined
   return { year, month };
 });
 
 // Constraints work with optional params
-app.get('/posts/:id?', (ctx) => ({})).whereNumber('id');
+router.get('/posts/:id?', (ctx) => ({})).whereNumber('id');
 ```
 
 ## Wildcard Routes
@@ -679,25 +1349,15 @@ End a route path with `/*` or `/**` to create a catch-all route. The remaining p
 
 ```typescript
 // SPA fallback — serves index.html for any unmatched path
-app.get('/*', (ctx) => {
+router.get('/*', (ctx) => {
   return new Response(Bun.file('public/index.html'));
 });
 
-// Static file serving (with path traversal protection)
-app.get('/assets/*', (ctx) => {
-  const filePath = ctx.params['*'];
-  if (!filePath) return new Response('Not Found', { status: 404 });
-
-  const resolved = Bun.resolveSync(`public/${filePath}`, process.cwd());
-  const root = Bun.resolveSync('public', process.cwd());
-  if (!resolved.startsWith(root)) {
-    return new Response('Forbidden', { status: 403 });
-  }
-  return new Response(Bun.file(resolved));
-});
+// Static file serving — see "Static Files" for traversal protection and caching
+router.get('/assets/*', serveStatic('./public'));
 
 // GET /assets/css/style.css → ctx.params["*"] = "css/style.css"
-// GET /assets/js/app.js     → ctx.params["*"] = "js/app.js"
+// GET /assets/js/router.js     → ctx.params["*"] = "js/router.js"
 // GET /assets               → ctx.params["*"] = undefined
 ```
 
@@ -708,7 +1368,7 @@ app.get('/assets/*', (ctx) => {
 Combine named parameters and a trailing wildcard:
 
 ```typescript
-app.get('/users/:id/*', (ctx) => {
+router.get('/users/:id/*', (ctx) => {
   const { id } = ctx.params;
   const remaining = ctx.params['*'];
   return { id, path: remaining };
@@ -722,8 +1382,8 @@ app.get('/users/:id/*', (ctx) => {
 Wildcard routes compose with group prefixes and `basePath`:
 
 ```typescript
-app.group('/api', (router) => {
-  router.get('/proxy/*', async (ctx) => {
+router.group('/api', (api) => {
+  api.get('/proxy/*', async (ctx) => {
     const target = ctx.params['*'];
     return fetch(`https://backend.example.com/${target}`);
   });
@@ -737,8 +1397,8 @@ app.group('/api', (router) => {
 Routes match in registration order (first match wins). Register specific routes before wildcard catch-alls:
 
 ```typescript
-app.get('/assets/manifest.json', (ctx) => ({ type: 'manifest' }));
-app.get('/assets/*', (ctx) => {
+router.get('/assets/manifest.json', (ctx) => ({ type: 'manifest' }));
+router.get('/assets/*', (ctx) => {
   return new Response(Bun.file(`public/${ctx.params['*']}`));
 });
 
@@ -748,33 +1408,132 @@ app.get('/assets/*', (ctx) => {
 
 ### Wildcard URL Generation
 
-Named wildcard routes support URL generation via `app.route()`. Pass the `"*"` param for the remaining path:
+Named wildcard routes support URL generation via `router.route()`. Pass the `"*"` param for the remaining path:
 
 ```typescript
-app.get('/assets/*', () => ({})).name('assets');
+router.get('/assets/*', () => ({})).name('assets');
 
-app.route('assets', { '*': 'css/style.css' }); // → "/assets/css/style.css"
-app.route('assets');                            // → "/assets"
+router.route('assets', { '*': 'css/style.css' }); // → "/assets/css/style.css"
+router.route('assets');                            // → "/assets"
 ```
 
 > **Note:** The wildcard must appear at the end of the path. A `*` in the middle of a path (e.g., `/*/foo`) throws an error.
 
 ## Error Handling
 
-Uncaught errors in handlers return a 500 response. The default error handler is environment-aware:
+Uncaught errors in handlers return a 500 response. In debug mode the default error handler returns the full `error.message` as `detail`; otherwise it returns a generic `"Internal Server Error"` with no `detail`, so database errors, file paths and stack traces never leak.
 
-- **Production** (`NODE_ENV=production`): Returns a generic `"Internal Server Error"` message to avoid leaking sensitive details like database errors, file paths, or stack traces.
-- **Development/Test** (any other `NODE_ENV`): Returns the full `error.message` for easier debugging.
+Debug mode is decided in this order; the first that applies wins:
+
+1. **The `debug` router option**, when set (`true` or `false`).
+2. **Mounted on a `@bunary/core` Application** (`httpProvider()` or `createRouter({ app })`): core's resolved `app.debug`, i.e. `config.app.debug`, then `APP_DEBUG`, then `DEBUG`, defaulting to `false`. Detail is only shown when it is exactly `true`. Core's `app.env` is **not** consulted: core falls back to `development` when no environment is configured, so a container with nothing set would otherwise leak error messages.
+3. **Standalone router**: detail is shown only when the environment is explicitly `development` or `test` (`APP_ENV`, then `NODE_ENV`). `production`, any other value, or no environment at all (common in containers) gets the generic response.
+
+```typescript
+createRouter({ debug: true });  // always include detail
+createRouter({ debug: false }); // never include detail, even in development or with app.debug: true
+
+// Mounted on core: detail follows app.debug, not app.env
+createApp({ config: { app: { name: "api", env: "development", debug: true } } });
+```
 
 For full control, use a custom `onError` handler:
 
 ```typescript
-createApp({
+createRouter({
   onError: (ctx, error) => {
     console.error('Request error:', error);
     return new Response(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
   }
 });
+```
+
+## Using with @bunary/core
+
+`@bunary/http` works standalone. To mount a router on a [`@bunary/core`](https://github.com/bunary-dev/core)
+Application, install core alongside it and import the integration from the
+`@bunary/http/provider` subpath:
+
+```typescript
+import { createApp } from '@bunary/core';
+import { createRouter } from '@bunary/http';
+import { httpProvider, RouterToken, serve } from '@bunary/http/provider';
+
+const router = createRouter();
+router.get('/', (ctx) => ctx.json({ app: ctx.app?.config.get('app.name') }));
+
+const app = await createApp({
+  config: {
+    app: { name: 'my-api' },
+    http: { port: 3000, hostname: '0.0.0.0' },
+  },
+  providers: [httpProvider(router)],
+}).boot();
+
+const server = serve(app);          // reads config.http.port / .hostname
+// serve(app, { port: 0 });         // overrides win over the config
+// app.get(RouterToken) === router
+server.stop();
+```
+
+`@bunary/core` is an **optional peer dependency**. The integration lives on the
+`@bunary/http/provider` subpath and *only* there, so importing the main barrel
+(`@bunary/http`) never resolves `@bunary/core` — a standalone install with no
+core present keeps working. (Route validation reaches for the same optional
+peer, but lazily, only when a route declares schemas.)
+
+### `httpProvider(router)`
+
+Returns a core `Provider`. Its `register()` hook:
+
+- binds the router under `RouterToken` (`app.get(RouterToken)`),
+- validates the `http` configuration namespace, throwing a core `BunaryError`
+  for a non-object `http`, a `http.port` that is not an integer in `0..65535`,
+  a non-string `http.hostname` or a non-object `http.cors`,
+- makes the Application available to every handler as `ctx.app`.
+
+It never listens — starting the server is `serve()`'s job, so a booted
+application is still safe to use from a test or a CLI command.
+
+### `serve(app, overrides?)`
+
+Reads the router from `RouterToken` and `port` / `hostname` from the `http`
+config namespace, then calls `router.listen()` and returns its `BunaryServer`
+handle unchanged. `overrides` is a `ListenOptions` and wins over the config;
+anything neither sets falls through to `listen()`'s own defaults
+(`localhost:3000`). It throws core's `MissingBindingError` if `httpProvider()`
+was never registered.
+
+### `BunaryConfig.http`
+
+Importing the subpath augments core's `BunaryConfig` with an optional `http`
+namespace, so `defineConfig()` type-checks it:
+
+```typescript
+import { defineConfig } from '@bunary/core';
+import type { HttpConfig } from '@bunary/http';
+
+export default defineConfig({
+  app: { name: 'my-api' },
+  http: { port: 3000, hostname: '0.0.0.0', cors: { origin: '*' } },
+});
+```
+
+Every key is optional — the augmentation is program-wide, so a core application
+that never serves HTTP still type-checks.
+
+### `ctx.app`
+
+`ctx.app` is the Application the router is mounted on, or `undefined` for a
+standalone router. `httpProvider()` is the recommended way to set it;
+`createRouter({ app })` is the manual equivalent for code that builds an
+Application without a provider.
+
+```typescript
+const app = createApp({ config: { app: { name: 'my-api' } } });
+const router = createRouter({ app });
+
+router.get('/name', (ctx) => ctx.json({ name: ctx.app?.config.get('app.name') }));
 ```
 
 ## Types
@@ -783,7 +1542,7 @@ All types are exported for TypeScript users:
 
 ```typescript
 import type { 
-  BunaryApp, 
+  Router, 
   BunaryServer,
   RequestContext, 
   RouteHandler,
@@ -794,6 +1553,28 @@ import type {
   GroupCallback,
   RouteInfo,
   CorsOptions,
+  ServeStaticOptions,
+  RateLimitOptions,
+  RateLimitStore,
+  RateLimitHit,
+  BodyReader,
+  CookieJar,
+  CookieSerializeOptions,
+
+  PathParams,
+  QueryParams,
+  RouteSchema,
+  RouteSchemas,
+  InferSchemaOutput,
+  ValidatedContext,
+  ValidatedRouteHandler,
+  AnyContext,
+  WebSocketHandlers,
+  WebSocketData,
+  WebSocketRouteOptions,
+  RouterWebSocketHandler,
+  ResourceConverter,
+  HttpConfig,
 } from '@bunary/http';
 ```
 

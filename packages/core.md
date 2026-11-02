@@ -10,7 +10,7 @@ Foundation module for the Bunary framework: configuration, environment helpers, 
 ## Installation
 
 ```bash
-bun add @bunary/core
+bun add @bunary/core@^0.4.0
 ```
 
 ## Usage
@@ -21,7 +21,7 @@ bun add @bunary/core
 import { env, isDev, isProd, isTest } from "@bunary/core";
 
 const port = env("PORT", 3000);        // number
-const debug = env("DEBUG", false);     // boolean
+const debug = env("DEBUG", false);     // boolean, accepts "TRUE" / "on" / "1"
 const name = env("APP_NAME", "myapp"); // string
 
 if (isDev()) {
@@ -29,54 +29,273 @@ if (isDev()) {
 }
 ```
 
-### Configuration
-
-`createConfig()` returns an instance-scoped store, not the resolved config object. Use `configStore.get()` in app code to read the resolved config.
+`env()` is for one-off lookups. For the variables an app actually depends on, validate them once at boot with `defineEnv` and read that object instead.
 
 ```typescript
-import { createConfig, defineConfig } from "@bunary/core";
+import { defineEnv } from "@bunary/core";
+import { z } from "zod";
 
-export const configStore = createConfig(
-  defineConfig({
-    app: {
-      name: "MyApp",
-      env: "development",
-      debug: true,
-    },
+// In bunary.config.ts: a bad .env throws here, at module load.
+export const appEnv = defineEnv(
+  z.object({
+    PORT: z.coerce.number().default(3000),
+    DATABASE_URL: z.string(),
   }),
 );
 
-export default configStore.get();
+appEnv.PORT; // number, frozen
 ```
+
+### The environment name
+
+`development`, `production` or `test`, resolved from `APP_ENV`, then `NODE_ENV`, then `development`. An unrecognised value throws rather than quietly falling back to `development`, so `APP_ENV=prod` fails at boot instead of running production in debug mode.
+
+```typescript
+import { createApp, environment, resolveEnvironment } from "@bunary/core";
+
+environment();                 // resolved from the process
+resolveEnvironment("test");    // an explicit value wins over both env vars
+
+const app = createApp({ config: { app: { name: "MyApp" } } });
+app.env; // config.app.env -> APP_ENV -> NODE_ENV -> "development"
+```
+
+### Configuration
+
+One `bunary.config.ts` holds top-level namespaces (`app`, `http`, `orm`, ...). `createConfig()` returns a `ConfigRepository`: an immutable, instance-scoped snapshot with dot-path reads. `createApp()` builds one for you and exposes it as `app.config`.
+
+```typescript
+import { createApp } from "@bunary/core";
+
+const app = createApp({
+  config: {
+    app: { name: "MyApp", env: "development", debug: true },
+    http: { port: 3000, host: "" },
+  },
+});
+
+app.config.get().app.name;         // "MyApp" — the whole, typed config
+app.config.get("http.port");       // 3000
+app.config.get<number>("http.port"); // typed by the caller
+app.config.get("http.tls", false); // fallback for a missing path
+app.config.has("http.host");       // true — set, but empty
+app.config.filled("http.host");    // false — an empty string is not filled
+```
+
+`has()` asks whether a key exists; `filled()` asks whether it holds anything. `null`, `undefined`, a blank string, an empty array and an empty object are unfilled; `false` and `0` are filled — they are real values.
+
+Pass a [Standard Schema](https://standardschema.dev) validator (zod, valibot, arktype) or a plain function to have the config validated once, at boot:
+
+```typescript
+import { defineConfig } from "@bunary/core";
+import { z } from "zod";
+
+export default defineConfig(
+  z.object({
+    app: z.object({ name: z.string().min(1) }),
+    http: z.object({ port: z.coerce.number() }),
+  }),
+  { app: { name: "MyApp" }, http: { port: Bun.env.PORT } },
+);
+// A bad PORT throws ValidationError: Config validation failed: http.port: ...
+```
+
+The repository never freezes and never mutates the object you hand it: it keeps a frozen shallow copy of the top level and of `app`, so writing through `get()` throws, and holds nested namespaces by reference. Treat those as read-only.
+
+Config is the source of truth: it comes from `.env` and `bunary.config.ts` and does not change at runtime. Temporary or runtime values belong in the app's token bindings (`app.set(token, value)`), not in config.
+
+There is no `set` and no `clear`, and no global config: the snapshot is built once, and you hold the repository or you do not reach it.
+
+### Application
+
+```typescript
+import { createApp, createToken, MissingBindingError } from "@bunary/core";
+
+const DB = createToken<{ url: string }>("db");
+
+const app = createApp({ config: { app: { name: "MyApp" } } });
+app.set(DB, { url: "postgres://localhost/app" });
+
+await app.boot();
+
+app.get(DB).url; // typed as string
+```
+
+Two apps created in one process share no config and no bindings.
 
 ## API
 
+### createApp(options: CreateAppOptions): Application
+
+Create an instance-scoped application. `options.config` is validated through `defineConfig`, so an invalid config throws here. Returns an unbooted `Application`:
+
+- `config` — this app's `ConfigRepository`.
+- `env` — the environment name this app runs in: `config.app.env`, then `APP_ENV`, then `NODE_ENV`, then `development`. An unknown value throws here.
+- `set(token, value)` — bind a value to a token; returns the app for chaining. Allowed after boot, but providers should register before boot.
+- `get(token)` — read a binding, typed by the token; throws `MissingBindingError` when unset.
+- `has(token)` — `true` when a value is bound, even a nullish one.
+- `boot()` — idempotent; repeated calls return the same promise and boot runs once.
+- `booted` — `true` once `boot()` has completed.
+
+### createToken\<T\>(name: string): Token\<T\>
+
+Create a typed registry key. Identity is the token object, never its name: two `createToken("db")` calls are two distinct keys. `name` is used only in error messages.
+
+### BunaryError
+
+Base class for every error thrown by Bunary; supports the standard `cause` option.
+
+### MissingBindingError
+
+Thrown by `Application.get` when nothing is bound. Carries the offending `token` and the message `No binding registered for token "db"`.
+
 ### env\<T\>(key: string, defaultValue?: T): T
 
-Get an environment variable with optional default and automatic type coercion.
+Get an environment variable with optional default and automatic type coercion, driven by the default value's type.
+
+- Empty and whitespace-only values count as unset and return the default.
+- Booleans are case-insensitive: `true`/`1`/`yes`/`on` and `false`/`0`/`no`/`off`; anything else returns the default.
+- Numbers are trimmed before parsing; `NaN` returns the default.
+- Strings are returned verbatim, never trimmed.
+
+### defineEnv\<Output\>(schema, source?): Readonly\<Output\>
+
+Validate the process environment once and return it typed and frozen. `schema` is a Standard Schema object (zod, valibot, arktype) or a plain function that throws on bad input; `source` defaults to `Bun.env`. Throws `ValidationError` listing every offending key. Call it at the top level of `bunary.config.ts` so a bad `.env` fails at boot.
+
+`defineEnv` is deliberately not wired into `createApp`: `app.env` is the environment *name*, not the variables.
+
+### resolveEnvironment(explicit?: string): EnvironmentType
+
+Resolve the environment name: `explicit`, then `APP_ENV`, then `NODE_ENV`, then `development`. Empty and whitespace-only values count as unset. Throws `BunaryError` — `Unknown environment "staging" (expected development, production, test)` — for anything else.
+
+### environment(): EnvironmentType
+
+`resolveEnvironment()` with no explicit value: the environment name resolved from the process, ignoring app config. Prefer `app.env` when you hold an `Application`.
 
 ### isDev(): boolean
 
-Returns true if NODE_ENV is "development" or not set.
+Returns true if the resolved environment is "development" (including when neither `APP_ENV` nor `NODE_ENV` is set).
 
 ### isProd(): boolean
 
-Returns true if NODE_ENV is "production".
+Returns true if the resolved environment is "production".
 
 ### isTest(): boolean
 
-Returns true if NODE_ENV is "test".
+Returns true if the resolved environment is "test".
 
-### defineConfig(config: BunaryConfig): BunaryConfig
+### validateWith\<Input, Output\>(schema, input, context?): Output
 
-Type-safe configuration helper with defaults. Validates `app.name` is a non-empty string (throws for non-string values, empty strings, and whitespace-only strings). Passes through any augmented properties (e.g. `orm` from `@bunary/orm`).
+Validate a value against a `SchemaLike` — a Standard Schema object or a plain function — synchronously. Failures throw `ValidationError`; a schema whose `validate` returns a promise throws `BunaryError`, because core validates at boot. `context` labels the message, e.g. `"Environment"` or `"Config"`.
 
-### createConfig(config?: BunaryConfig): BunaryConfigStore
+### ValidationError
 
-Create an instance-scoped configuration store with `get()`, `set()`, `has()`, and `clear()`.
+Thrown when a schema rejects its input. Carries `issues: ReadonlyArray<{ path: string; message: string }>` with dot-joined paths (`"(root)"` when the validator gives none), and a message listing them: `Environment validation failed: PORT: Expected number; DATABASE_URL: Required`.
 
-- `get()` returns a deep-frozen `Readonly<BunaryConfig>` — both the top-level object and all nested objects are immutable.
-- `has()` returns `true` if config has been set and not cleared.
+### SchemaLike\<Input, Output\> / StandardSchemaV1
+
+`SchemaLike` is `StandardSchemaV1<Input, Output> | ((input: Input) => Output)`. `StandardSchemaV1` is re-exported from [`@standard-schema/spec`](https://standardschema.dev) — core's only runtime dependency, and a types-only package, so core never bundles a validator.
+
+### defineConfig(values: BunaryConfig): BunaryConfig
+### defineConfig\<Output\>(schema: ConfigSchema\<Output\>, values: BunaryConfig): Output
+
+Type-safe configuration helper with defaults. Validates `app.name` is a non-empty string (throws `BunaryError` for non-string values, empty strings, and whitespace-only strings). Resolves `app.env` through `resolveEnvironment`, so `app.env`, `APP_ENV` or `NODE_ENV` holding an unknown value throws rather than falling back to `development`. Resolves `app.debug` from `APP_DEBUG`, falling back to `DEBUG`. Passes through any augmented namespaces (e.g. `orm` from `@bunary/orm`).
+
+With a schema, validation runs first and the schema's output is what gets normalised, so a coercing schema decides what the config actually holds. Failures throw `ValidationError` with a `Config validation failed: http.port: ...` message and structured `issues`. Neither form mutates the values it is given.
+
+### createConfig(values: BunaryConfig): ConfigRepository
+
+Normalise `values` through `defineConfig` and return this app's config repository. The caller's object is neither frozen nor mutated, and two repositories in one process share nothing.
+
+### ConfigRepository
+
+An immutable, instance-scoped snapshot. No `set`, no `clear`, no global accessor.
+
+- `get()` — the whole `BunaryConfig`; the same object on every call.
+- `get(path)` — the value at a dot-path, or `undefined`. Untyped by default; `get<T>(path)` types it.
+- `get(path, fallback)` — the value, or `fallback` when the path is missing or holds `undefined`. `false`, `0`, `""` and `null` are returned as themselves.
+- `has(path?)` — whether the key exists, even when empty. Without a path, whether any config is held (always `true` for a built repository).
+- `filled(path)` — whether the key exists *and* is non-empty: `null`, `undefined`, a blank string, an empty array and an empty plain object are unfilled.
+- `all()` — an alias of `get()`.
+
+Paths are dot-notation and walk plain objects and arrays: `"app.name"`, `"http.cors.origins"`, `"servers.0.host"`. Only own properties are visible, so `"app.toString"` is a miss.
+
+### ConfigPath
+
+The paths known to `BunaryConfig`, including those added by module augmentation, offered as editor completions. Any other string is still accepted, because a package may read a namespace whose types it does not import.
+
+### ConfigSchema\<Output\>
+
+`StandardSchemaV1<unknown, Output> | ((input: BunaryConfig) => Output)`, where `Output extends BunaryConfig` — what `defineConfig` accepts as a validator.
+
+### Command
+
+Shape of a CLI command; assign to `BunaryConfig.commands` to register project-defined commands.
+
+### CommandArg
+
+A positional argument accepted by a `Command`.
+
+### CommandFlag
+
+A flag (e.g. `--dry-run` / `-d`) accepted by a `Command`.
+
+## Providers
+
+A provider is a plain object with two optional hooks; no class, base class or decorator is required.
+
+```typescript
+import { createApp, createToken, defineProvider } from "@bunary/core";
+
+const DB = createToken<{ url: string }>("db");
+
+const databaseProvider = defineProvider({
+  name: "database",
+  register(app) {
+    app.set(DB, { url: "postgres://localhost/app" });
+  },
+  async boot(app) {
+    await Promise.resolve(app.get(DB).url);
+  },
+});
+
+const app = createApp({
+  config: { app: { name: "MyApp" } },
+  providers: [databaseProvider],
+});
+
+await app.boot();
+```
+
+`app.boot()` runs every `register` in declaration order, synchronously and in one pass, then every `boot` in declaration order, awaiting each one before the next. There is no dependency graph: ordering is the array you wrote. `booted` flips to `true` only once every `boot` has resolved.
+
+Binding with `app.set()` after boot still works, but providers should register before boot so everything that boots can rely on their bindings.
+
+### Failure semantics
+
+- A `register` that returns a promise rejects `boot()` with a `BunaryError` naming the provider. Move async work into `boot`.
+- A hook that throws or rejects rejects `boot()`. A `BunaryError` (including `MissingBindingError`) passes through unchanged; anything else is wrapped in a `BunaryError` naming the provider and the hook, with the original kept as `cause`.
+- A failed boot is permanent: `booted` stays `false` and every later `boot()` returns the same rejected promise. An app that failed to boot is dead — create a new one.
+
+### Provider
+
+```typescript
+interface Provider {
+  readonly name?: string;
+  register?(app: Application): void;
+  boot?(app: Application): void | Promise<void>;
+}
+```
+
+`name` is used in error messages only; an unnamed provider is reported by its index.
+
+### defineProvider(provider: Provider): Provider
+
+Identity helper: returns the object it was given. It exists for authoring — the contextual type means `app` is typed inside the hooks and a mistyped hook name is caught where you wrote it rather than at boot.
+
+### Application.use(provider: Provider): this
+
+Append a provider to the declaration order. Valid only before boot starts; calling it once `boot()` has been called throws a `BunaryError`, because `register` would otherwise run after other providers had already booted.
 
 ## Requirements
 
