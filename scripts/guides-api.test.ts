@@ -54,3 +54,16 @@ describe("guides: 0.4 API", () => {
 		});
 	}
 });
+
+describe("guides: route model binding (@bunary/http 0.7)", () => {
+	const httpDoc = readFileSync(join(import.meta.dir, "..", "packages", "http.md"), "utf8");
+	const routeParameters = readFileSync(join(GUIDES_DIR, "routing", "route-parameters.md"), "utf8");
+
+	test("http package docs have a Route Model Binding section", () => {
+		expect(httpDoc).toMatch(/^## Route Model Binding$/m);
+	});
+
+	test("route parameters guide links to it", () => {
+		expect(routeParameters).toContain("(/docs/packages/http#route-model-binding)");
+	});
+});
